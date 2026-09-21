@@ -160,13 +160,16 @@ final class OverlayCalibration {
     }
 
     private static Transform defaultTransform(CompositeOverlayGroup group) {
-        // Values confirmed by the first on-device static diagnostic. The report had a global
-        // Y=-0.01; fold it into each confirmed group so the still-unfinished ears stay neutral.
+        // Values confirmed by the first on-device static diagnostic. Keep the raw global and
+        // per-group values intact so "reset current" reproduces the exported report exactly.
+        if (group == CompositeOverlayGroup.GLOBAL) {
+            return new Transform(1f, 0f, -.01f, true, 0f, 0f, 0f);
+        }
         if (group == CompositeOverlayGroup.AHOGE) {
-            return new Transform(.88f, -.02f, -.06f, true, 0f, 0f, 0f);
+            return new Transform(.88f, -.02f, -.05f, true, 0f, 0f, 0f);
         }
         if (group == CompositeOverlayGroup.TAIL) {
-            return new Transform(.82f, 0f, -.01f, true, 0f, 0f, 0f);
+            return new Transform(.82f, 0f, 0f, true, 0f, 0f, 0f);
         }
         return new Transform(1f, 0f, 0f, true, 0f, 0f, 0f);
     }
