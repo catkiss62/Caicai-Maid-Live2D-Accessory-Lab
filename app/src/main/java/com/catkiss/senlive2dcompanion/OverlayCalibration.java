@@ -39,7 +39,7 @@ final class OverlayCalibration {
 
     private OverlayCalibration() {
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
-            transforms.put(group, new Transform(1f, 0f, 0f, true, 0f, 0f, 0f));
+            transforms.put(group, defaultTransform(group));
         }
     }
 
@@ -97,7 +97,7 @@ final class OverlayCalibration {
 
     OverlayCalibration reset(CompositeOverlayGroup group) {
         OverlayCalibration result = copy();
-        result.transforms.put(group, new Transform(1f, 0f, 0f, true, 0f, 0f, 0f));
+        result.transforms.put(group, defaultTransform(group));
         return result;
     }
 
@@ -157,6 +157,18 @@ final class OverlayCalibration {
         result.transforms.clear();
         result.transforms.putAll(transforms);
         return result;
+    }
+
+    private static Transform defaultTransform(CompositeOverlayGroup group) {
+        // Values confirmed by the first on-device static diagnostic. The report had a global
+        // Y=-0.01; fold it into each confirmed group so the still-unfinished ears stay neutral.
+        if (group == CompositeOverlayGroup.AHOGE) {
+            return new Transform(.88f, -.02f, -.06f, true, 0f, 0f, 0f);
+        }
+        if (group == CompositeOverlayGroup.TAIL) {
+            return new Transform(.82f, 0f, -.01f, true, 0f, 0f, 0f);
+        }
+        return new Transform(1f, 0f, 0f, true, 0f, 0f, 0f);
     }
 
     private static float clamp(float value, float minimum, float maximum) {

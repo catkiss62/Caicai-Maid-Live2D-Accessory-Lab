@@ -32,6 +32,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private static final String TAG = "SenNativeCubism";
+    // v0.1.1 intentionally validates fixed calibrated overlays first. Re-enable only after the
+    // repaired ear-fin pair has been checked against the maid model's full motion range.
+    private static final boolean DYNAMIC_ATTACHMENT_ENABLED = false;
 
     private final Context context;
     private final Listener listener;
@@ -116,6 +119,15 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("accessories", new org.json.JSONArray(
                     Arrays.asList("ahoge", "ear_fins", "tail")));
             root.put("test_motion", compositeTestMotion.id);
+            root.put("attachment_mode", DYNAMIC_ATTACHMENT_ENABLED
+                    ? "dynamic_anchor" : "fixed_calibrated");
+            root.put("stage_transform", new JSONObject()
+                    .put("scale", stageScale)
+                    .put("x", stageTranslateX)
+                    .put("y", stageTranslateY));
+            root.put("ear_right_mode", overlayModel != null
+                    && overlayModel.mirrorsLeftEarForRight()
+                    ? "mirrored_from_left" : "authored_mesh");
             root.put("calibration", overlayCalibration.toJsonObject());
             root.put("sen_runtime_inventory", overlayModel == null
                     ? JSONObject.NULL : overlayModel.buildCompositeInventory());
@@ -318,7 +330,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        applyAttachmentCorrection(group, senGroupProjection);
+        if (DYNAMIC_ATTACHMENT_ENABLED) {
+            applyAttachmentCorrection(group, senGroupProjection);
+        }
         overlayModel.drawSenGroup(senGroupProjection, group);
     }
 
@@ -329,20 +343,43 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        applyAttachmentCorrection(group, senGroupProjection);
+        if (DYNAMIC_ATTACHMENT_ENABLED) {
+            applyAttachmentCorrection(group, senGroupProjection);
+        }
         earLeftProjection.setMatrix(senGroupProjection);
         earRightProjection.setMatrix(senGroupProjection);
 
-        float[] leftCenter = pointToClip(overlayModel, senGroupProjection,
-                overlayModel.currentEarCenter(true));
-        float[] rightCenter = pointToClip(overlayModel, senGroupProjection,
-                overlayModel.currentEarCenter(false));
+        float[] leftModelCenter = overlayModel.currentEarCenter(true);
+        float[] leftCenter = pointToClip(overlayModel, senGroupProjection, leftModelCenter);
+        boolean mirrorRight = overlayModel.mirrorsLeftEarForRight();
+        float[] rightCenter;
+        float pairX;
+        float pairY;
+        if (mirrorRight && leftModelCenter != null && leftCenter != null) {
+            float[] axis = pointToClip(overlayModel, senGroupProjection,
+                    new float[]{0f, leftModelCenter[1]});
+            if (axis == null) {
+                overlayModel.drawSenGroup(senGroupProjection, group);
+                return;
+            }
+            pairX = axis[0];
+            pairY = leftCenter[1];
+            rightCenter = new float[]{2f * pairX - leftCenter[0], leftCenter[1]};
+            preMirrorAroundX(earRightProjection, pairX);
+        } else {
+            rightCenter = pointToClip(overlayModel, senGroupProjection,
+                    overlayModel.currentEarCenter(false));
+            if (leftCenter == null || rightCenter == null) {
+                overlayModel.drawSenGroup(senGroupProjection, group);
+                return;
+            }
+            pairX = (leftCenter[0] + rightCenter[0]) * .5f;
+            pairY = (leftCenter[1] + rightCenter[1]) * .5f;
+        }
         if (leftCenter == null || rightCenter == null) {
             overlayModel.drawSenGroup(senGroupProjection, group);
             return;
         }
-        float pairX = (leftCenter[0] + rightCenter[0]) * .5f;
-        float pairY = (leftCenter[1] + rightCenter[1]) * .5f;
         OverlayCalibration.Transform ear = calibration.get(group);
         preRotateAround(earLeftProjection, ear.pairRotation, pairX, pairY);
         preRotateAround(earRightProjection, ear.pairRotation, pairX, pairY);
@@ -356,6 +393,16 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 rightCenter[0] + spacing, rightCenter[1]);
         overlayModel.drawEarSide(earLeftProjection, true);
         overlayModel.drawEarSide(earRightProjection, false);
+    }
+
+    private static void preMirrorAroundX(CubismMatrix44 matrix, float centerX) {
+        float[] mirror = {
+                -1f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                2f * centerX, 0f, 0f, 1f
+        };
+        CubismMatrix44.multiply(mirror, matrix.getArray(), matrix.getArray());
     }
 
     private void applyAttachmentCorrection(CompositeOverlayGroup group,
@@ -418,7 +465,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             destination.scale(1.0f / aspectRatio, 1.0f);
         }
         destination.scaleRelative(stageScale * localScale, stageScale * localScale);
-        destination.translateRelative(stageTranslateX + localX, stageTranslateY + localY);
+        // Calibration offsets are model-relative. Scale them with the whole stage so accessories
+        // keep the same attachment point when the user zooms the complete composition.
+        destination.translateRelative(stageTranslateX + localX * stageScale,
+                stageTranslateY + localY * stageScale);
     }
 
     private void updateInteractionBounds() {

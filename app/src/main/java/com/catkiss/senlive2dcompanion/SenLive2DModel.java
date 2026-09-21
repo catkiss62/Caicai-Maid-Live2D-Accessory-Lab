@@ -160,6 +160,8 @@ final class SenLive2DModel extends CubismUserModel {
             new EnumMap<>(CompositeOverlayGroup.class);
     private boolean[] earLeftFilter;
     private boolean[] earRightFilter;
+    private boolean mirrorLeftEarForRight;
+    private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
     private final EnumMap<CompositeOverlayGroup, float[]> neutralGroupCenters =
             new EnumMap<>(CompositeOverlayGroup.class);
     private float[] neutralHeadAnchor;
@@ -428,15 +430,22 @@ final class SenLive2DModel extends CubismUserModel {
     }
 
     void drawEarSide(CubismMatrix44 matrix, boolean left) {
-        drawWithFilter(matrix, left ? earLeftFilter : earRightFilter);
+        drawWithFilter(matrix, left || mirrorLeftEarForRight
+                ? earLeftFilter : earRightFilter);
     }
 
     private void drawWithFilter(CubismMatrix44 matrix, boolean[] filter) {
         if (model == null || getRenderer() == null) return;
-        CubismMatrix44.multiply(modelMatrix.getArray(), matrix.getArray(), matrix.getArray());
+        // A frame can draw the same model several times (low layer, high layer and accessories).
+        // Never multiply the caller's projection in place: doing so made every later pass apply
+        // modelMatrix again, which displaced front hair and could push the model out of clip space
+        // after zooming.
+        drawMvpMatrix.setMatrix(matrix);
+        CubismMatrix44.multiply(modelMatrix.getArray(), drawMvpMatrix.getArray(),
+                drawMvpMatrix.getArray());
         CubismRendererAndroid renderer = getRenderer();
         renderer.setDrawableVisibilityFilter(filter);
-        renderer.setMvpMatrix(matrix);
+        renderer.setMvpMatrix(drawMvpMatrix);
         renderer.drawModel();
     }
 
@@ -493,6 +502,8 @@ final class SenLive2DModel extends CubismUserModel {
             if (drawableCenterX(index) < 0f) earLeftFilter[index] = true;
             else earRightFilter[index] = true;
         }
+        mirrorLeftEarForRight = countEnabled(earLeftFilter) > 0
+                && countEnabled(earRightFilter) == 0;
 
         StringBuilder detail = new StringBuilder("Sen配件网格");
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
@@ -501,6 +512,9 @@ final class SenLive2DModel extends CubismUserModel {
                     .append(countEnabled(compositeGroupFilters.get(group)));
         }
         appendAppearanceDetail(detail.toString());
+        if (mirrorLeftEarForRight) {
+            appendAppearanceDetail("耳鳍右侧：由左侧 Part113 网格中心镜像");
+        }
     }
 
     private static int medianRenderOrder(int[] renderOrders) {
@@ -653,6 +667,10 @@ final class SenLive2DModel extends CubismUserModel {
 
     float[] currentEarCenter(boolean left) {
         return centerOfFilter(left ? earLeftFilter : earRightFilter);
+    }
+
+    boolean mirrorsLeftEarForRight() {
+        return mirrorLeftEarForRight;
     }
 
     private float[] centerOfFilter(boolean[] filter) {
