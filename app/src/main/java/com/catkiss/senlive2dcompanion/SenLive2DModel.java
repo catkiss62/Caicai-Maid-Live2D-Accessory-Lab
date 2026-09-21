@@ -459,7 +459,7 @@ final class SenLive2DModel extends CubismUserModel {
         int count = model.getDrawableCount();
         if (compositeRole == CompositeModelRole.RUBY_PRIMARY) {
             Set<Integer> twinTails = collectChildDrawables(MAIN_TWIN_TAIL_PART_IDS);
-            int[] renderOrders = model.getDrawableRenderOrders();
+            int[] renderOrders = model.getRenderOrders();
             int cutoff = Integer.MIN_VALUE;
             for (int index : twinTails) {
                 if (index >= 0 && index < renderOrders.length) {
