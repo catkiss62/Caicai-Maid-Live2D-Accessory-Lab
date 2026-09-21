@@ -1,0 +1,24 @@
+diff --git a/framework/src/main/java/com/live2d/sdk/cubism/framework/rendering/android/CubismRendererAndroid.java b/framework/src/main/java/com/live2d/sdk/cubism/framework/rendering/android/CubismRendererAndroid.java
+index 73bdf5a..9e7c3de 100644
+--- a/framework/src/main/java/com/live2d/sdk/cubism/framework/rendering/android/CubismRendererAndroid.java
++++ b/framework/src/main/java/com/live2d/sdk/cubism/framework/rendering/android/CubismRendererAndroid.java
+@@ -254,0 +255,9 @@ public class CubismRendererAndroid extends CubismRenderer {
++    /**
++     * Limits the drawable color pass without disabling mask sources. A null value restores the
++     * model's authored visibility. This is intentionally a renderer-only filter: it never writes
++     * model parameters or part opacity and is therefore safe to switch between composite passes.
++     */
++    public void setDrawableVisibilityFilter(boolean[] enabled) {
++        drawableVisibilityFilter = enabled == null ? null : enabled.clone();
++    }
++
+@@ -670,0 +680,6 @@ public class CubismRendererAndroid extends CubismRenderer {
++        if (drawableVisibilityFilter != null
++            && (drawableIndex < 0
++            || drawableIndex >= drawableVisibilityFilter.length
++            || !drawableVisibilityFilter[drawableIndex])) {
++            return;
++        }
+@@ -1134,0 +1150,2 @@ public class CubismRendererAndroid extends CubismRenderer {
++    private boolean[] drawableVisibilityFilter;
++

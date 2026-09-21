@@ -1,0 +1,16 @@
+.gradle/
+.idea/
+build/
+app/build/
+local.properties
+*.iml
+__pycache__/
+*.py[cod]
+dist/
+package/
+*.zip
+*.7z
+*.moc3
+*.cmo3
+*.psd
+local-models/
