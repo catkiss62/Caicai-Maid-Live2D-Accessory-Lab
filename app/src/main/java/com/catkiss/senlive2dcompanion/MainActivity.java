@@ -40,7 +40,7 @@ import java.util.zip.ZipInputStream;
 /** 菜菜女仆主模型 + Sen 呆毛、耳鳍、尾巴配件实验室。 */
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
-    private static final String VERSION = "v0.1.1 · 分层修复与耳鳍成对测试";
+    private static final String VERSION = "v0.1.2 · 呆毛耳鳍硬隔离测试";
     private static final long MAX_EXTRACTED_BYTES = 1_500_000_000L;
     private static final int MAX_ZIP_ENTRIES = 8_000;
 
@@ -184,6 +184,18 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         motionRow.addView(actionButton("自动巡检", () -> selectMotion(CompositeTestMotion.AUTO)), weighted());
         motionRow.addView(actionButton("中立", () -> selectMotion(CompositeTestMotion.NEUTRAL)), weighted());
         panel.addView(motionRow);
+        Button earTwitch = panelButton("单独测试：耳鳍快速抖动两次");
+        earTwitch.setOnClickListener(v -> {
+            if (staticMode) {
+                staticMode = false;
+                prefs.edit().putBoolean("static_mode", false).apply();
+                staticButton.setText("完全静止：关闭");
+                companionView.setStaticMode(false);
+            }
+            companionView.triggerEarTwitch();
+            updateSummary();
+        });
+        panel.addView(earTwitch);
 
         panel.addView(section("表情（同组互斥）"));
         addPresetRows(panel, new String[]{"1爱心", "1生气", "1红脸", "1钱钱",
@@ -457,7 +469,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.1.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.2.json");
         });
     }
 

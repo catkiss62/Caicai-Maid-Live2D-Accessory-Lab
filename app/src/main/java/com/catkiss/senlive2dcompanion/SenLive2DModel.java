@@ -43,8 +43,12 @@ final class SenLive2DModel extends CubismUserModel {
         void onComplete(String report);
     }
 
-    private static final String[] AHOGE_PART_IDS = {
-            "Part13", "Part220", "ArtMesh140_Skinning2", "ArtMesh140_Skinning"
+    // Exact meshes confirmed by the first device inventory. Part13/Part220 are valid names, but
+    // recursively collecting their hierarchy also pulls dormant texture_16 ear variants into the
+    // ahoge pass. Keep geometry and rendering on the same strict six-segment whitelist.
+    private static final String[] AHOGE_DRAWABLE_IDS = {
+            "ArtMesh151", "ArtMesh160", "ArtMesh189",
+            "ArtMesh190", "ArtMesh191", "ArtMesh192"
     };
     private static final String[] TAIL_PART_IDS = {"Part239"};
     private static final String[] MAIN_TWIN_TAIL_PART_IDS = {
@@ -53,10 +57,11 @@ final class SenLive2DModel extends CubismUserModel {
     private static final String[] MAIN_HEAD_ANCHOR_PART_IDS = {"Part25", "Part53"};
     private static final String[] MAIN_TAIL_ANCHOR_PART_IDS = {"Part29"};
     private static final String[] ACCESSORY_TAIL_PART_IDS = {"Part239"};
-    private static final String[] ACCESSORY_EAR_FIN_PART_IDS = {"Part113"};
-    private static final String[] ACCESSORY_AHOGE_PART_IDS = {"Part13", "Part220"};
-    private static final String[] ACCESSORY_AHOGE_DIRECT_DRAWABLE_IDS = {
-            "ArtMesh140_Skinning2", "ArtMesh140_Skinning"
+    // Part113 = 兔耳. Include its three live meshes and three authored alternate/mask meshes,
+    // without walking into any neighbouring head or ahoge hierarchy.
+    private static final String[] EAR_FIN_DRAWABLE_IDS = {
+            "ArtMesh631", "ArtMesh1095", "ArtMesh1021",
+            "ArtMesh146", "ArtMesh629", "ArtMesh1019"
     };
     private static final String[] COMPOSITE_DRIVE_IDS = {
             "ParamAngleX", "ParamAngleY", "ParamAngleZ",
@@ -491,10 +496,9 @@ final class SenLive2DModel extends CubismUserModel {
         compositeGroupFilters.clear();
         putCompositeFilter(CompositeOverlayGroup.TAIL, count,
                 collectChildDrawables(ACCESSORY_TAIL_PART_IDS), null);
-        putCompositeFilter(CompositeOverlayGroup.AHOGE, count,
-                collectChildDrawables(ACCESSORY_AHOGE_PART_IDS),
-                ACCESSORY_AHOGE_DIRECT_DRAWABLE_IDS);
-        Set<Integer> ears = collectChildDrawables(ACCESSORY_EAR_FIN_PART_IDS);
+        Set<Integer> ahoge = collectExistingDrawables(AHOGE_DRAWABLE_IDS);
+        putCompositeFilter(CompositeOverlayGroup.AHOGE, count, ahoge, null);
+        Set<Integer> ears = collectExistingDrawables(EAR_FIN_DRAWABLE_IDS);
         putCompositeFilter(CompositeOverlayGroup.EAR_FINS, count, ears, null);
         earLeftFilter = new boolean[count];
         earRightFilter = new boolean[count];
@@ -1409,7 +1413,7 @@ final class SenLive2DModel extends CubismUserModel {
     }
 
     private void applyRuntimeGeometry() {
-        Set<Integer> ahogeDrawables = collectChildDrawables(AHOGE_PART_IDS);
+        Set<Integer> ahogeDrawables = collectExistingDrawables(AHOGE_DRAWABLE_IDS);
         Set<Integer> tailDrawables = collectChildDrawables(TAIL_PART_IDS);
         if (!geometryDiagnosticsAdded) {
             appendAppearanceDetail("耳鳍人工网格 0（已撤销）"
@@ -1641,6 +1645,15 @@ final class SenLive2DModel extends CubismUserModel {
                 : model.getParameterMinimumValue(index);
         model.getModel().getParameterViews()[index].setValue(
                 base + (end - base) * Math.abs(bounded));
+    }
+
+    private Set<Integer> collectExistingDrawables(String[] drawableIds) {
+        Set<Integer> result = new LinkedHashSet<>();
+        for (String drawableId : drawableIds) {
+            int index = findExistingDrawableIndex(drawableId);
+            if (index >= 0) result.add(index);
+        }
+        return result;
     }
 
     private Set<Integer> collectChildDrawables(String[] partIds) {
