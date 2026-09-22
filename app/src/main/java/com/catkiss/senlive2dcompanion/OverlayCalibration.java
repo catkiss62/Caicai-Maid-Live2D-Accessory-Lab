@@ -160,16 +160,19 @@ final class OverlayCalibration {
     }
 
     private static Transform defaultTransform(CompositeOverlayGroup group) {
-        // Values confirmed by the first on-device static diagnostic. Keep the raw global and
-        // per-group values intact so "reset current" reproduces the exported report exactly.
+        // Raw values confirmed by the v0.1.2 on-device report. Existing installs keep their saved
+        // values; reset and clean imports now reproduce the same bind pose.
         if (group == CompositeOverlayGroup.GLOBAL) {
-            return new Transform(1f, 0f, -.01f, true, 0f, 0f, 0f);
+            return new Transform(1f, 0f, .20f, true, 0f, 0f, 0f);
         }
         if (group == CompositeOverlayGroup.AHOGE) {
             return new Transform(.88f, -.02f, -.05f, true, 0f, 0f, 0f);
         }
+        if (group == CompositeOverlayGroup.EAR_FINS) {
+            return new Transform(1.14f, .01f, -.29f, true, 8f, .22f, -10f);
+        }
         if (group == CompositeOverlayGroup.TAIL) {
-            return new Transform(.82f, 0f, 0f, true, 0f, 0f, 0f);
+            return new Transform(.96f, .02f, -.24f, true, 0f, 0f, 0f);
         }
         return new Transform(1f, 0f, 0f, true, 0f, 0f, 0f);
     }

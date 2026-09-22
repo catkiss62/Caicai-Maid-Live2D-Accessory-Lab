@@ -342,9 +342,20 @@ final class SenLive2DModel extends CubismUserModel {
     }
 
     private void updateCompositeOverlay(float deltaSeconds) {
+        float frameDelta = staticMode ? 0.0f : Math.max(0.0f, Math.min(0.05f, deltaSeconds));
         model.loadParameters();
         applyCompositeDriveValues();
-        updateScheduler.onLateUpdate(model, staticMode ? 0.0f : deltaSeconds);
+        if (!staticMode) {
+            performance.updateAccessoryEarOnly(frameDelta);
+            pendingEarPhysicsDrive = performance.getEarPhysicsDrive();
+            pendingEarPhysicsMix = performance.getEarPhysicsMix();
+            pendingEarPhysicsActive = performance.isEarPhysicsActive();
+        } else {
+            pendingEarPhysicsDrive = 0.0f;
+            pendingEarPhysicsMix = 0.0f;
+            pendingEarPhysicsActive = false;
+        }
+        updateScheduler.onLateUpdate(model, frameDelta);
         applyOutfitParameters(SenOutfitPresets.MAID, null);
         // Shared body/arm/cloth physics outputs from Ruby are authoritative. Applying them again
         // after Sen's native physics prevents the two compiled rigs from slowly drifting apart.

@@ -190,7 +190,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     void triggerEarTwitch() {
-        if (model != null) model.triggerEarTwitch();
+        // The maid is the primary model, but Part113 and its isolated physics live in the Sen
+        // donor. Route the test/personality event to the actual accessory owner.
+        if (overlayModel != null) overlayModel.triggerEarTwitch();
+        else if (model != null) model.triggerEarTwitch();
     }
 
     void setTouchFollowEnabled(boolean enabled) {

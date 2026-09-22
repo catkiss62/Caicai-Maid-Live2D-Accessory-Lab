@@ -251,11 +251,29 @@ final class SenPerformanceEngine {
         updateAction(dt, writer);
         updateNaturalBlink(dt, writer);
 
-        if (earTwitchTime >= 0.0f) {
-            earTwitchTime += dt;
-            if (earTwitchTime >= earInputSeconds() + earSettleSeconds()) {
-                earTwitchTime = -1.0f;
-            }
+        advanceEarTwitch(dt);
+    }
+
+    /**
+     * Minimal personality loop for a donor model that renders only the ear fins. It deliberately
+     * advances no face, body, touch or action channels; only the confirmed low-frequency two-pulse
+     * ear reaction survives in the accessory layer.
+     */
+    void updateAccessoryEarOnly(float deltaSeconds) {
+        float dt = Math.max(0.0f, Math.min(0.05f, deltaSeconds));
+        elapsed += dt;
+        if (earTwitchTime < 0.0f && elapsed >= nextIdleEarTwitchAt) {
+            triggerEarTwitch();
+            nextIdleEarTwitchAt = elapsed + 28.0f + random.nextFloat() * 40.0f;
+        }
+        advanceEarTwitch(dt);
+    }
+
+    private void advanceEarTwitch(float dt) {
+        if (earTwitchTime < 0.0f) return;
+        earTwitchTime += dt;
+        if (earTwitchTime >= earInputSeconds() + earSettleSeconds()) {
+            earTwitchTime = -1.0f;
         }
     }
 
