@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.17 · 呆毛根锁与耳鳍间距约束";
+    private static final String VERSION = "v0.1.18 · 实际网格对照测试";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
             CompositeOverlayGroup.AHOGE,
@@ -67,6 +67,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     private CompositeTestMotion selectedMotion = CompositeTestMotion.LIVE;
     private String pendingExportReport;
     private boolean staticMode;
+    private boolean geometryConstraintEnabled = true;
     private boolean stageAdjustmentEnabled;
     private boolean whiteSocks;
     private float stageScale = 1f;
@@ -98,7 +99,9 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         earAdjustmentTarget = EarAdjustmentTarget.fromId(
                 prefs.getString("ear_adjustment_target", EarAdjustmentTarget.PAIR.id));
         staticMode = prefs.getBoolean("static_mode", false);
+        geometryConstraintEnabled = prefs.getBoolean("geometry_constraint_enabled", true);
         buildUi();
+        companionView.setGeometryConstraintEnabled(geometryConstraintEnabled);
         loadModels();
     }
 
@@ -172,8 +175,8 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         layerRow.addView(actionButton("往前（更少遮挡）", () -> adjustLayer(1)),
                 weighted());
         panel.addView(layerRow);
-        panel.addView(text("呆毛始终绑定顶部头发，绘制在头饰前一层；左右耳鳍按当前插层"
-                        + "前侧的蒙皮素材节分别跟随。同一素材节的颜色变体合并为一步。",
+        panel.addView(text("绘制层与运动分开；呆毛绘制在头饰前一层。"
+                        + "左右耳鳍图层独立，同一素材节的颜色变体合并为一步。",
                 9, Color.rgb(180, 159, 199)));
 
         panel.addView(section("耳鳍原生双耳调节"));
@@ -192,6 +195,19 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         updateCalibrationText();
 
         panel.addView(section("静止基准与吻合度动作"));
+        Button geometryButton = panelButton(geometryConstraintEnabled
+                ? "实际网格校正：开启" : "v0.1.16 原版：开启");
+        geometryButton.setOnClickListener(v -> {
+            geometryConstraintEnabled = !geometryConstraintEnabled;
+            prefs.edit().putBoolean("geometry_constraint_enabled", geometryConstraintEnabled).apply();
+            companionView.setGeometryConstraintEnabled(geometryConstraintEnabled);
+            geometryButton.setText(geometryConstraintEnabled
+                    ? "实际网格校正：开启" : "v0.1.16 原版：开启");
+        });
+        panel.addView(geometryButton);
+        panel.addView(text("保持同一个‘左右大幅’动作运行，点击此按钮即可对比两版；"
+                        + "诊断会记录两档实际耳鳍外缘间距与呆毛近根网格修正。",
+                9, Color.rgb(180, 159, 199)));
         LinearLayout staticRow = row();
         Button staticButton = panelButton(staticMode ? "完全静止：开启" : "完全静止：关闭");
         staticButton.setOnClickListener(v -> {
@@ -552,7 +568,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.17.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.18.json");
         });
     }
 

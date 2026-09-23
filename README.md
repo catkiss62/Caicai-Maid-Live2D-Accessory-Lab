@@ -3,6 +3,21 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.18
+
+- Adds a one-tap comparison between the accepted v0.1.16 head path and an experimental actual-mesh
+  correction, while keeping the accepted neutral calibration, independent layers, small pose and
+  tail untouched. The comparison can run during one continuous `左右大幅` motion.
+- Measures both rendered ear-fin meshes after their individual pose transforms. When the actual
+  outer span grows beyond the calibrated neutral span (narrowed by the maid's horizontal head turn), moves
+  the two complete ear meshes inward by equal amounts. The native double twitch remains intact.
+- Saves the ahoge's six near-root meshes at their bind pose. The new mode restores the first 12%
+  to that shape at the moving root, blends into native motion by 45%, and maps the real Sen root
+  onto the maid top-hair carrier with the already calibrated bind offset. The tip remains free.
+- Exports live measurements and mode-specific maxima: before/allowed/after ear span, applied ear
+  correction, root-to-hair gap, proximal vertex correction and missing-anchor counts. A zero
+  correction on device can therefore be distinguished from a correction that had no visible effect.
+
 ## v0.1.17
 
 - Preserves the accepted v0.1.16 head carriers, chibi scaling, layer positions and all saved

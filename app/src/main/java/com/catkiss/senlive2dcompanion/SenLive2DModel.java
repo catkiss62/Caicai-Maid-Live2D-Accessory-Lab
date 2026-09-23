@@ -199,6 +199,9 @@ final class SenLive2DModel extends CubismUserModel {
     private AhogeAnchorPoint ahogeRootAnchor;
     private AhogeAnchorPoint ahogeDirectionAnchor;
     private float[] neutralAhogeRoot;
+    private final Map<Integer, float[]> neutralAhogeVertices = new LinkedHashMap<>();
+    private float[] neutralLeftEarBounds;
+    private float[] neutralRightEarBounds;
     private float referenceDrawableLeft = -1.0f;
     private float referenceDrawableRight = 1.0f;
     private float referenceDrawableTop = 1.0f;
@@ -224,6 +227,7 @@ final class SenLive2DModel extends CubismUserModel {
     private final Map<String, Set<String>> rabbitEarDiscoveryHits = new LinkedHashMap<>();
     private String rabbitEarDiscoveryMode = "unresolved";
     private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
+    private final CubismMatrix44 earBoundsMvpMatrix = CubismMatrix44.create();
     private MeshAnchorFrame headCarrierFrame;
     private MeshAnchorFrame bodyCarrierFrame;
     private MeshAnchorFrame ahogeHairCarrierFrame;
@@ -1089,6 +1093,16 @@ final class SenLive2DModel extends CubismUserModel {
         }
         neutralAhogeRoot = compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR
                 ? currentAhogeRootPoint() : null;
+        neutralAhogeVertices.clear();
+        neutralLeftEarBounds = null;
+        neutralRightEarBounds = null;
+        if (compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR) {
+            for (int index : collectExistingDrawables(AHOGE_DRAWABLE_IDS)) {
+                neutralAhogeVertices.put(index, model.getDrawableVertices(index).clone());
+            }
+            neutralLeftEarBounds = earModelBounds(true);
+            neutralRightEarBounds = earModelBounds(false);
+        }
         appendAppearanceDetail("固定三角载体：头 "
                 + (headCarrierFrame == null ? "缺失" : headCarrierFrame.drawableId)
                 + " · 身体 "
@@ -1199,6 +1213,82 @@ final class SenLive2DModel extends CubismUserModel {
 
     float[] neutralAhogeRootPoint() {
         return neutralAhogeRoot == null ? null : neutralAhogeRoot.clone();
+    }
+
+    float horizontalHeadTurnMagnitude() {
+        if (model == null) return 0f;
+        int index = findParameterIndex("ParamAngleX3");
+        if (index < 0) return 0f;
+        float neutral = model.getParameterDefaultValue(index);
+        float value = model.getModel().getParameterViews()[index].getValue();
+        float range = value >= neutral
+                ? model.getParameterMaximumValue(index) - neutral
+                : neutral - model.getParameterMinimumValue(index);
+        return range < 1e-5f ? 0f
+                : Math.max(0f, Math.min(1f, Math.abs(value - neutral) / range));
+    }
+
+    /** Clip-space bounds of the actual drawable vertices, after this side's draw transform. */
+    float[] currentEarClipBounds(CubismMatrix44 projection, boolean screenLeft) {
+        if (model == null) return null;
+        boolean[] filter = screenLeft ? earFinScreenLeftFilter : earFinScreenRightFilter;
+        if (filter == null) return null;
+        copyMvpMatrix(projection, earBoundsMvpMatrix);
+        float[] transform = earBoundsMvpMatrix.getArray();
+        float[] bounds = emptyBounds();
+        for (int i = 0; i < Math.min(filter.length, model.getDrawableCount()); i++) {
+            if (!filter[i] || !isDrawableVisible(i)) continue;
+            float[] vertices = model.getDrawableVertices(i);
+            for (int v = 0; v + 1 < vertices.length; v += 2) {
+                addClipPoint(bounds, transform, vertices[v], vertices[v + 1]);
+            }
+        }
+        return Float.isFinite(bounds[0]) ? bounds : null;
+    }
+
+    float[] neutralEarClipBounds(CubismMatrix44 projection, boolean screenLeft) {
+        float[] neutral = screenLeft ? neutralLeftEarBounds : neutralRightEarBounds;
+        if (neutral == null) return null;
+        copyMvpMatrix(projection, earBoundsMvpMatrix);
+        float[] matrix = earBoundsMvpMatrix.getArray();
+        float[] bounds = emptyBounds();
+        for (float x : new float[]{neutral[0], neutral[2]}) {
+            for (float y : new float[]{neutral[1], neutral[3]}) {
+                addClipPoint(bounds, matrix, x, y);
+            }
+        }
+        return bounds;
+    }
+
+    private float[] earModelBounds(boolean screenLeft) {
+        boolean[] filter = screenLeft ? earFinScreenLeftFilter : earFinScreenRightFilter;
+        if (filter == null) return null;
+        float[] bounds = emptyBounds();
+        for (int i = 0; i < Math.min(filter.length, model.getDrawableCount()); i++) {
+            if (!filter[i] || !isDrawableVisible(i)) continue;
+            float[] vertices = model.getDrawableVertices(i);
+            for (int v = 0; v + 1 < vertices.length; v += 2) {
+                bounds[0] = Math.min(bounds[0], vertices[v]);
+                bounds[1] = Math.min(bounds[1], vertices[v + 1]);
+                bounds[2] = Math.max(bounds[2], vertices[v]);
+                bounds[3] = Math.max(bounds[3], vertices[v + 1]);
+            }
+        }
+        return Float.isFinite(bounds[0]) ? bounds : null;
+    }
+
+    private static float[] emptyBounds() {
+        return new float[]{Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY,
+                Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY};
+    }
+
+    private static void addClipPoint(float[] bounds, float[] matrix, float x, float y) {
+        float clipX = matrix[0] * x + matrix[4] * y + matrix[12];
+        float clipY = matrix[1] * x + matrix[5] * y + matrix[13];
+        bounds[0] = Math.min(bounds[0], clipX);
+        bounds[1] = Math.min(bounds[1], clipY);
+        bounds[2] = Math.max(bounds[2], clipX);
+        bounds[3] = Math.max(bounds[3], clipY);
     }
 
     float[] currentCompositeGroupCenter(CompositeOverlayGroup group) {
@@ -2180,6 +2270,45 @@ final class SenLive2DModel extends CubismUserModel {
                 vertices[i + 1] = root[1] + dx * sin + dy * cos + offsetY * weight;
             }
         }
+    }
+
+    /** Replace native near-root deformation with the captured bind mesh, blending into the tip. */
+    float lockAhogeProximalVertices() {
+        if (model == null || neutralAhogeRoot == null || !hasCompleteAhogeAnchor()) return 0f;
+        float[] rootNow = currentAhogeRootPoint();
+        if (rootNow == null) return 0f;
+        float fullLength = 0f;
+        for (float[] bind : neutralAhogeVertices.values()) {
+            for (int v = 0; v + 1 < bind.length; v += 2) {
+                fullLength = Math.max(fullLength, (float) Math.hypot(
+                        bind[v] - neutralAhogeRoot[0], bind[v + 1] - neutralAhogeRoot[1]));
+            }
+        }
+        if (fullLength < 1e-5f) return 0f;
+        float maximumCorrection = 0f;
+        for (Map.Entry<Integer, float[]> entry : neutralAhogeVertices.entrySet()) {
+            int index = entry.getKey();
+            if (!isDrawableVisible(index)) continue;
+            float[] bind = entry.getValue();
+            float[] vertices = model.getDrawableVertices(index);
+            if (vertices.length != bind.length) continue;
+            for (int v = 0; v + 1 < bind.length; v += 2) {
+                float distance = (float) Math.hypot(
+                        bind[v] - neutralAhogeRoot[0], bind[v + 1] - neutralAhogeRoot[1]);
+                float t = Math.max(0f, Math.min(1f,
+                        (distance / fullLength - .12f) / .33f));
+                float nativeWeight = t * t * (3f - 2f * t);
+                float rigidX = rootNow[0] + bind[v] - neutralAhogeRoot[0];
+                float rigidY = rootNow[1] + bind[v + 1] - neutralAhogeRoot[1];
+                float resultX = rigidX * (1f - nativeWeight) + vertices[v] * nativeWeight;
+                float resultY = rigidY * (1f - nativeWeight) + vertices[v + 1] * nativeWeight;
+                maximumCorrection = Math.max(maximumCorrection, (float) Math.hypot(
+                        resultX - vertices[v], resultY - vertices[v + 1]));
+                vertices[v] = resultX;
+                vertices[v + 1] = resultY;
+            }
+        }
+        return maximumCorrection;
     }
 
     private void captureReferenceDrawableBounds() {

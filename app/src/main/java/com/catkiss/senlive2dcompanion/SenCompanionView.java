@@ -250,6 +250,10 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         queueRenderer(() -> renderer.setCompositeTestMotion(motion));
     }
 
+    public void setGeometryConstraintEnabled(boolean enabled) {
+        queueRenderer(() -> renderer.setGeometryConstraintEnabled(enabled));
+    }
+
     public void setStaticMode(boolean enabled) {
         queueRenderer(() -> renderer.setStaticMode(enabled));
     }

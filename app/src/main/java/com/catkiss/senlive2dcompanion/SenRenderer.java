@@ -45,6 +45,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private final CubismMatrix44 projection = CubismMatrix44.create();
     private final CubismMatrix44 maidProjection = CubismMatrix44.create();
     private final CubismMatrix44 senGroupProjection = CubismMatrix44.create();
+    private final CubismMatrix44 leftEarProjection = CubismMatrix44.create();
+    private final CubismMatrix44 rightEarProjection = CubismMatrix44.create();
     private final CubismMatrix44 interactionMvp = CubismMatrix44.create();
 
     private SenLive2DModel model;
@@ -86,6 +88,21 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float ahogeLagVelocityY;
     private float ahogeLagAngularVelocity;
     private volatile boolean ahogeMotionResetRequested = true;
+    private volatile boolean geometryConstraintEnabled = true;
+    private final long[] geometryFrames = new long[2];
+    private final float[] maximumEarCorrection = new float[2];
+    private final float[] maximumRootCorrection = new float[2];
+    private final float[] maximumProximalCorrection = new float[2];
+    private float lastEarBeforeSpan;
+    private float lastEarAfterSpan;
+    private float lastEarAllowedSpan;
+    private float lastEarCorrection;
+    private float lastHeadTurn;
+    private float lastRootBeforeGap;
+    private float lastRootCorrection;
+    private float lastProximalCorrection;
+    private long earMeasurementFailures;
+    private long ahogeHairFallbackFrames;
 
     SenRenderer(Context context, Listener listener) {
         this.context = context.getApplicationContext();
@@ -122,6 +139,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         if (model != null) model.setCompositeTestMotion(compositeTestMotion);
     }
 
+    void setGeometryConstraintEnabled(boolean enabled) {
+        geometryConstraintEnabled = enabled;
+        ahogeMotionResetRequested = true;
+    }
+
     void setStaticMode(boolean enabled) {
         staticMode = enabled;
         ahogeMotionResetRequested = true;
@@ -141,29 +163,58 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("calibration_cycle", new org.json.JSONArray(
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
+            root.put("geometry_comparison", new JSONObject()
+                    .put("mode", geometryConstraintEnabled ? "actual_mesh" : "v0.1.16_baseline")
+                    .put("baseline_frames", geometryFrames[0])
+                    .put("new_frames", geometryFrames[1])
+                    .put("ear_actual_outer_span_before_clip", lastEarBeforeSpan)
+                    .put("ear_actual_outer_span_allowed_clip", lastEarAllowedSpan)
+                    .put("ear_actual_outer_span_after_clip", lastEarAfterSpan)
+                    .put("ear_translation_per_side_clip", lastEarCorrection)
+                    .put("normalized_head_turn", lastHeadTurn)
+                    .put("maximum_ear_translation_baseline_clip", maximumEarCorrection[0])
+                    .put("maximum_ear_translation_new_clip", maximumEarCorrection[1])
+                    .put("root_to_hair_target_before_clip", lastRootBeforeGap)
+                    .put("root_to_hair_target_after_clip", lastRootCorrection)
+                    .put("maximum_root_gap_baseline_clip", maximumRootCorrection[0])
+                    .put("maximum_root_gap_new_clip", maximumRootCorrection[1])
+                    .put("near_root_vertex_correction_model", lastProximalCorrection)
+                    .put("maximum_near_root_vertex_correction_new_model",
+                            maximumProximalCorrection[1])
+                    .put("ear_measurement_failures", earMeasurementFailures)
+                    .put("ahoge_hair_fallback_frames", ahogeHairFallbackFrames));
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? "maid_head_constrained_ear_pair_and_sen_ahoge_root_lock"
+                    ? (geometryConstraintEnabled ? "actual_mesh_ear_span_and_top_hair_root"
+                    : "v0.1.16_independent_face_mesh_pins")
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("sen_rigid_parameter_drive", false);
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "sen_root_anchor_locked_to_maid_head_with_tip_only_spring")
-                    .put("ear_fins_screen_left", "damped_face_pin_with_pair_expansion_limit")
-                    .put("ear_fins_screen_right", "damped_face_pin_with_pair_expansion_limit")
+                    .put("ahoge", geometryConstraintEnabled
+                            ? "maid_top_hair_root_with_near_mesh_lock_and_free_tip"
+                            : "v0.1.16_face_mesh_top_center_pin")
+                    .put("ear_fins_screen_left", geometryConstraintEnabled
+                            ? "actual_drawable_outer_span_constraint" : "v0.1.16_face_mesh_left_pin")
+                    .put("ear_fins_screen_right", geometryConstraintEnabled
+                            ? "actual_drawable_outer_span_constraint" : "v0.1.16_face_mesh_right_pin")
                     .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
             root.put("ear_pair_constraint", new JSONObject()
                     .put("horizontal_local_response", .28)
                     .put("vertical_local_response", .60)
-                    .put("maximum_spacing_over_rigid_pose", 1.03)
-                    .put("narrowing_allowed", true));
+                    .put("actual_outer_span_over_neutral", 1.01)
+                    .put("maximum_head_turn_narrowing", .16)
+                    .put("enabled", geometryConstraintEnabled));
             root.put("ahoge_root_lock", new JSONObject()
                     .put("root_source", "Sen ArtMesh151 vertex 8 barycentric anchor")
-                    .put("root_physics_weight", 0)
-                    .put("locked_root_zone_fraction", .10)
+                    .put("moving_target", "maid_top_hair_triangle_with_neutral_bind_offset")
+                    .put("native_near_root_weight", 0)
+                    .put("locked_root_zone_fraction", .12)
+                    .put("native_blend_complete_fraction", .45)
                     .put("secondary_motion", "smooth_tip_weighted_velocity_spring")
-                    .put("stage_gesture_drives_physics", false));
+                    .put("stage_gesture_drives_physics", false)
+                    .put("enabled", geometryConstraintEnabled));
             root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
             root.put("ear_neutral_pose_policy", "inherit_v0.1.12_pair_projection_identity_offsets");
             root.put("ear_layer_policy", "independent_material_skinning_section_slot_per_side");
@@ -195,7 +246,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.17-root-lock-spacing-constraint";
+            return "0.1.18-actual-mesh-comparison";
         }
     }
 
@@ -400,6 +451,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             if (!thresholds.contains(rightEarThreshold)) thresholds.add(rightEarThreshold);
         }
         Collections.sort(thresholds);
+        if (calibration.isVisible(CompositeOverlayGroup.EAR_FINS)) {
+            prepareEarPairProjections(calibration);
+        }
         int previous = Integer.MIN_VALUE;
         for (int threshold : thresholds) {
             model.drawMainRenderRange(maidProjection, previous, threshold);
@@ -419,6 +473,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private void drawOverlayGroup(CompositeOverlayGroup group) {
         OverlayCalibration calibration = overlayCalibration;
         if (overlayModel == null || !calibration.isVisible(group)) return;
+        if (group == CompositeOverlayGroup.AHOGE) {
+            lastProximalCorrection = geometryConstraintEnabled
+                    ? overlayModel.lockAhogeProximalVertices() : 0f;
+            int index = geometryConstraintEnabled ? 1 : 0;
+            maximumProximalCorrection[index] = Math.max(
+                    maximumProximalCorrection[index], lastProximalCorrection);
+        }
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
@@ -432,36 +493,111 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         OverlayCalibration calibration = overlayCalibration;
         CompositeOverlayGroup group = CompositeOverlayGroup.EAR_FINS;
         if (overlayModel == null || !calibration.isVisible(group)) return;
+        prepareEarPairProjections(calibration);
         drawEarFinSide(true, calibration);
         drawEarFinSide(false, calibration);
     }
 
     private void drawEarFinSide(boolean screenLeft, OverlayCalibration calibration) {
+        overlayModel.drawSenEarSide(screenLeft ? leftEarProjection : rightEarProjection,
+                screenLeft);
+    }
+
+    private void prepareEarPairProjections(OverlayCalibration calibration) {
+        float[] neutralLeft = prepareOneEarProjection(true, calibration, leftEarProjection);
+        float[] neutralRight = prepareOneEarProjection(false, calibration, rightEarProjection);
+        float[] left = overlayModel.currentEarClipBounds(leftEarProjection, true);
+        float[] right = overlayModel.currentEarClipBounds(rightEarProjection, false);
+        if (left == null || right == null || neutralLeft == null || neutralRight == null) {
+            earMeasurementFailures++;
+            return;
+        }
+        float neutralSpan = neutralRight[2] - neutralLeft[0];
+        float beforeSpan = right[2] - left[0];
+        if (!Float.isFinite(neutralSpan) || neutralSpan <= 0f || beforeSpan <= 0f) {
+            earMeasurementFailures++;
+            return;
+        }
+
+        float[] leftNow = triangleToClip(model, maidProjection,
+                model.currentHeadPinTriangle(CompositeOverlayGroup.EAR_FINS, true));
+        float[] leftNeutral = triangleToClip(model, maidProjection,
+                model.neutralHeadPinTriangle(CompositeOverlayGroup.EAR_FINS, true));
+        float[] rightNow = triangleToClip(model, maidProjection,
+                model.currentHeadPinTriangle(CompositeOverlayGroup.EAR_FINS, false));
+        float[] rightNeutral = triangleToClip(model, maidProjection,
+                model.neutralHeadPinTriangle(CompositeOverlayGroup.EAR_FINS, false));
+        float perspective = 1f;
+        if (leftNow != null && leftNeutral != null && rightNow != null && rightNeutral != null) {
+            float neutralWidth = triangleCenterX(rightNeutral) - triangleCenterX(leftNeutral);
+            float currentWidth = triangleCenterX(rightNow) - triangleCenterX(leftNow);
+            if (neutralWidth > 1e-5f) {
+                perspective = clamp(currentWidth / neutralWidth, .78f, 1f);
+            }
+        }
+        lastHeadTurn = model.horizontalHeadTurnMagnitude();
+        // This parameter only sets an envelope; the actual correction is decided from rendered
+        // fin vertices. At a full side turn, roots should sit closer than in the neutral pose.
+        perspective = Math.min(perspective, 1f - .16f * lastHeadTurn);
+        float allowedSpan = neutralSpan * 1.01f * perspective;
+        float correction = geometryConstraintEnabled
+                ? Math.max(0f, (beforeSpan - allowedSpan) * .5f) : 0f;
+        if (correction > 0f) {
+            overlayModel.applyClipTransform(leftEarProjection,
+                    new Similarity2D(1f, 0f, correction, 0f).toMatrix());
+            overlayModel.applyClipTransform(rightEarProjection,
+                    new Similarity2D(1f, 0f, -correction, 0f).toMatrix());
+        }
+        lastEarBeforeSpan = beforeSpan;
+        lastEarAllowedSpan = allowedSpan;
+        lastEarCorrection = correction;
+        float[] afterLeft = overlayModel.currentEarClipBounds(leftEarProjection, true);
+        float[] afterRight = overlayModel.currentEarClipBounds(rightEarProjection, false);
+        if (afterLeft == null || afterRight == null) {
+            earMeasurementFailures++;
+            lastEarAfterSpan = 0f;
+        } else {
+            lastEarAfterSpan = afterRight[2] - afterLeft[0];
+        }
+        int index = geometryConstraintEnabled ? 1 : 0;
+        geometryFrames[index]++;
+        maximumEarCorrection[index] = Math.max(maximumEarCorrection[index], correction);
+    }
+
+    private float[] prepareOneEarProjection(boolean screenLeft,
+                                            OverlayCalibration calibration,
+                                            CubismMatrix44 destination) {
         CompositeOverlayGroup group = CompositeOverlayGroup.EAR_FINS;
-        prepareProjection(overlayModel, senGroupProjection,
+        prepareProjection(overlayModel, destination,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
         // Preserve the confirmed v0.1.12 neutral pose: both side passes begin from exactly the
         // same pair projection and pair-rotation pivot. Side fine-tuning defaults to identity.
         OverlayCalibration.Transform ear = calibration.get(group);
         float[] pairCenterModel = overlayModel.currentCompositeGroupCenter(group);
-        float[] pairCenter = pointToClip(overlayModel, senGroupProjection, pairCenterModel);
+        float[] pairCenter = pointToClip(overlayModel, destination, pairCenterModel);
         if (pairCenter != null) {
-            applyRotateAround(senGroupProjection, ear.pairRotation,
+            applyRotateAround(destination, ear.pairRotation,
                     pairCenter[0], pairCenter[1]);
         }
-        applyEarFineTune(screenLeft, calibration.getEarFineTune(screenLeft));
+        applyEarFineTune(destination, screenLeft, calibration.getEarFineTune(screenLeft));
+        float[] neutral = overlayModel.neutralEarClipBounds(destination, screenLeft);
         if (TRIANGLE_CARRIER_ATTACHMENT_ENABLED) {
-            applyMaidEarCarrierMotion(screenLeft, senGroupProjection);
+            if (geometryConstraintEnabled) {
+                applyMaidEarCarrierMotion(screenLeft, destination);
+            } else {
+                applyMaidHeadPinMotionLegacy(group, screenLeft, destination,
+                        .65f, .78f, 1.22f);
+            }
         }
-        overlayModel.drawSenEarSide(senGroupProjection, screenLeft);
+        return neutral;
     }
 
-    private void applyEarFineTune(boolean screenLeft,
+    private void applyEarFineTune(CubismMatrix44 projection, boolean screenLeft,
                                   OverlayCalibration.EarFineTune fineTune) {
         if (fineTune == null) return;
         float[] modelCenter = overlayModel.currentEarSideCenter(screenLeft);
-        float[] center = pointToClip(overlayModel, senGroupProjection, modelCenter);
+        float[] center = pointToClip(overlayModel, projection, modelCenter);
         if (center == null) return;
         float radians = (float) Math.toRadians(fineTune.rotation);
         float a = fineTune.scale * (float) Math.cos(radians);
@@ -474,7 +610,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 fineTune.y + center[1] - b * center[0] - a * center[1],
                 0f, 1f
         };
-        overlayModel.applyClipTransform(senGroupProjection, transform);
+        overlayModel.applyClipTransform(projection, transform);
     }
 
     private void applyMaidEarCarrierMotion(boolean screenLeft,
@@ -543,7 +679,12 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                                         CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
         if (group == CompositeOverlayGroup.AHOGE) {
-            applyMaidAhogeRootMotion(accessoryProjection);
+            if (geometryConstraintEnabled) {
+                applyMaidAhogeRootMotion(accessoryProjection);
+            } else {
+                applyMaidHeadPinMotionLegacy(group, true, accessoryProjection,
+                        .85f, .70f, 1.35f);
+            }
             return;
         }
         float[] mainNow = triangleToClip(model, maidProjection,
@@ -576,42 +717,92 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     /** Locks the actual Sen root anchor to the maid head, then adds physics only past the root. */
     private void applyMaidAhogeRootMotion(CubismMatrix44 accessoryProjection) {
-        float[] pinNow = triangleToClip(model, maidProjection,
-                model.currentHeadPinTriangle(CompositeOverlayGroup.AHOGE, true));
-        float[] pinNeutral = triangleToClip(model, maidProjection,
-                model.neutralHeadPinTriangle(CompositeOverlayGroup.AHOGE, true));
+        float[] hairNow = triangleToClip(model, maidProjection,
+                model.currentCarrierTriangle(CompositeOverlayGroup.AHOGE));
+        float[] hairNeutral = triangleToClip(model, maidProjection,
+                model.neutralCarrierTriangle(CompositeOverlayGroup.AHOGE));
         Similarity2D grossHeadMotion = currentGrossHeadMotion(.85f, .70f, 1.35f);
         float[] donorRootNow = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.currentAhogeRootPoint());
         float[] donorRootNeutral = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.neutralAhogeRootPoint());
-        if (pinNow == null || pinNeutral == null || grossHeadMotion == null
-                || donorRootNow == null || donorRootNeutral == null) return;
+        if (hairNow == null || hairNeutral == null || grossHeadMotion == null
+                || donorRootNow == null || donorRootNeutral == null) {
+            ahogeHairFallbackFrames++;
+            applyMaidHeadPinMotionLegacy(CompositeOverlayGroup.AHOGE, true,
+                    accessoryProjection, .85f, .70f, 1.35f);
+            return;
+        }
 
-        float neutralX = triangleCenterX(pinNeutral);
-        float neutralY = triangleCenterY(pinNeutral);
-        float[] rigidPin = grossHeadMotion.transformPoint(neutralX, neutralY);
-        float targetPinX = rigidPin[0]
-                + (triangleCenterX(pinNow) - rigidPin[0]) * .12f;
-        float targetPinY = rigidPin[1]
-                + (triangleCenterY(pinNow) - rigidPin[1]) * .58f;
-
-        // Preserve the user's neutral calibration as a head-local bind offset. Mapping the actual
-        // current donor root (rather than the maid pin) cancels any root drift from donor physics.
-        float bindOffsetX = donorRootNeutral[0] - neutralX;
-        float bindOffsetY = donorRootNeutral[1] - neutralY;
+        // The bind offset remains exactly as calibrated at rest, but its moving origin is the
+        // actual top-hair mesh rather than a proxy point on the face.
+        float bindOffsetX = donorRootNeutral[0] - triangleCenterX(hairNeutral);
+        float bindOffsetY = donorRootNeutral[1] - triangleCenterY(hairNeutral);
         float transformedOffsetX = grossHeadMotion.a * bindOffsetX
                 - grossHeadMotion.b * bindOffsetY;
         float transformedOffsetY = grossHeadMotion.b * bindOffsetX
                 + grossHeadMotion.a * bindOffsetY;
-        float targetRootX = targetPinX + transformedOffsetX;
-        float targetRootY = targetPinY + transformedOffsetY;
+        float targetRootX = triangleCenterX(hairNow) + transformedOffsetX;
+        float targetRootY = triangleCenterY(hairNow) + transformedOffsetY;
+        lastRootBeforeGap = (float) Math.hypot(
+                targetRootX - donorRootNow[0], targetRootY - donorRootNow[1]);
         Similarity2D rootLockedMotion = grossHeadMotion.mappingPoint(
                 donorRootNow[0], donorRootNow[1], targetRootX, targetRootY);
         overlayModel.applyClipTransform(accessoryProjection, rootLockedMotion.toMatrix());
+        float[] rootAfter = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.currentAhogeRootPoint());
+        if (rootAfter != null) {
+            lastRootCorrection = (float) Math.hypot(
+                    targetRootX - rootAfter[0], targetRootY - rootAfter[1]);
+            maximumRootCorrection[1] = Math.max(maximumRootCorrection[1], lastRootCorrection);
+        }
 
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
                 grossHeadMotion.angleRadians());
+    }
+
+    /** The accepted v0.1.16 head path, kept intact for one-tap on-device comparison. */
+    private void applyMaidHeadPinMotionLegacy(CompositeOverlayGroup group,
+                                              boolean screenLeft,
+                                              CubismMatrix44 accessoryProjection,
+                                              float scaleResponse,
+                                              float minimumScale,
+                                              float maximumScale) {
+        float[] pinNow = triangleToClip(model, maidProjection,
+                model.currentHeadPinTriangle(group, screenLeft));
+        float[] pinNeutral = triangleToClip(model, maidProjection,
+                model.neutralHeadPinTriangle(group, screenLeft));
+        Similarity2D grossHeadMotion = currentGrossHeadMotion(
+                scaleResponse, minimumScale, maximumScale);
+        if (pinNow == null || pinNeutral == null || grossHeadMotion == null) return;
+        float[] donorRootNeutral = group == CompositeOverlayGroup.AHOGE
+                ? pointToClip(overlayModel, accessoryProjection,
+                        overlayModel.neutralAhogeRootPoint()) : null;
+        Similarity2D pinnedMotion = grossHeadMotion.mappingPoint(
+                triangleCenterX(pinNeutral), triangleCenterY(pinNeutral),
+                triangleCenterX(pinNow), triangleCenterY(pinNow));
+        overlayModel.applyClipTransform(accessoryProjection, pinnedMotion.toMatrix());
+        if (group == CompositeOverlayGroup.AHOGE && donorRootNeutral != null) {
+            float[] hairNow = triangleToClip(model, maidProjection,
+                    model.currentCarrierTriangle(group));
+            float[] hairNeutral = triangleToClip(model, maidProjection,
+                    model.neutralCarrierTriangle(group));
+            float[] rootAfter = pointToClip(overlayModel, accessoryProjection,
+                    overlayModel.currentAhogeRootPoint());
+            if (hairNow != null && hairNeutral != null && rootAfter != null) {
+                float offsetX = donorRootNeutral[0] - triangleCenterX(hairNeutral);
+                float offsetY = donorRootNeutral[1] - triangleCenterY(hairNeutral);
+                float targetX = triangleCenterX(hairNow) + grossHeadMotion.a * offsetX
+                        - grossHeadMotion.b * offsetY;
+                float targetY = triangleCenterY(hairNow) + grossHeadMotion.b * offsetX
+                        + grossHeadMotion.a * offsetY;
+                lastRootCorrection = (float) Math.hypot(
+                        targetX - rootAfter[0], targetY - rootAfter[1]);
+                lastRootBeforeGap = lastRootCorrection;
+                maximumRootCorrection[0] = Math.max(
+                        maximumRootCorrection[0], lastRootCorrection);
+            }
+        }
     }
 
     private void applyAhogeSecondaryMotion(CubismMatrix44 accessoryProjection,
