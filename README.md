@@ -3,6 +3,16 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.8
+
+- Corrects the two head accessories moving opposite to the visible maid head turn. Ruby's chosen
+  rigid head reference parts expose a reversed screen-X delta, so only the ahoge and ear-fin
+  attachment targets reflect that horizontal delta around their neutral poses.
+- Leaves the tail on the direct body-frame path. Its origin/direction parts, matrix order, local
+  swing, scale `1.00`, and confirmed position are unchanged.
+- Keeps the three filters and attachment calls independent; no combined ahoge/ear-fin group and no
+  manual ear mirror are reintroduced.
+
 ## v0.1.7
 
 - Uses the confirmed v0.1.6 device calibration as the neutral bind pose: ahoge

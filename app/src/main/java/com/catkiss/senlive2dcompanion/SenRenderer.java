@@ -126,9 +126,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     ? "per_accessory_two_point" : "parameter_driven");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "independent_head_frame")
-                    .put("ear_fins", "independent_head_frame")
-                    .put("tail", "independent_body_frame")
+                    .put("ahoge", "independent_head_frame_x_reflected")
+                    .put("ear_fins", "independent_head_frame_x_reflected")
+                    .put("tail", "independent_body_frame_direct")
                     .put("combined_group", false));
             root.put("stage_transform", new JSONObject()
                     .put("scale", stageScale)
@@ -151,7 +151,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.7-independent-attachments";
+            return "0.1.8-head-direction-fix";
         }
     }
 
@@ -385,6 +385,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         if (mainNow == null || mainNeutral == null
                 || accessoryNow == null || accessoryNeutral == null) return;
 
+        if (group != CompositeOverlayGroup.TAIL) {
+            mainNow = reflectPoseHorizontalDelta(mainNeutral, mainNow);
+        }
+
         // This method is called once for one drawable group and one calibrated projection. First
         // obtain the maid's neutral -> current head/body motion, apply it to that group's donor
         // neutral frame, then replace the donor's incompatible rigid frame with the target frame.
@@ -395,6 +399,21 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         Similarity2D correction = Similarity2D.between(
                 accessoryNow, targetAccessoryPose, .35f, 2.5f);
         overlayModel.applyClipTransform(accessoryProjection, correction.toMatrix());
+    }
+
+    /**
+     * Ruby's selected rigid head parts move in the opposite screen-X direction from the visible
+     * head turn. Reflect only their per-point horizontal delta around the neutral pose. The body
+     * anchors used by the already verified tail binding deliberately bypass this conversion.
+     */
+    private static float[] reflectPoseHorizontalDelta(float[] neutral, float[] current) {
+        if (neutral == null || current == null || neutral.length < 4 || current.length < 4) {
+            return current;
+        }
+        return new float[]{
+                2f * neutral[0] - current[0], current[1],
+                2f * neutral[2] - current[2], current[3]
+        };
     }
 
     private float[] poseToClip(SenLive2DModel target, CubismMatrix44 targetProjection,
