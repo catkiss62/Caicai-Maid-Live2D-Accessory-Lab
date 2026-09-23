@@ -63,8 +63,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile float stageScale = 1.0f;
     private volatile float stageTranslateX;
     private volatile float stageTranslateY;
-    private float stagePivotX;
-    private float stagePivotY;
     private volatile OverlayCalibration overlayCalibration = OverlayCalibration.defaults();
     private volatile CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private volatile CompositeOutfit compositeOutfit =
@@ -101,6 +99,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float lastEarAllowedSpan;
     private float lastEarCorrection;
     private float lastEarSharedShift;
+    private float lastEarMeasuredSharedShift;
+    private float lastEarLeftBeforeX;
+    private float lastEarLeftAfterX;
+    private float lastEarRightBeforeX;
+    private float lastEarRightAfterX;
     private float lastEarFaceParallax;
     private float lastEarScreenTurn;
     private float lastHeadTurn;
@@ -209,6 +212,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("maximum_ear_translation_baseline_clip", maximumEarCorrection[0])
                     .put("maximum_ear_translation_new_clip", maximumEarCorrection[1])
                     .put("ear_shared_shift_clip", lastEarSharedShift)
+                    .put("ear_measured_pair_center_shift_clip", lastEarMeasuredSharedShift)
+                    .put("ear_screen_left_center_before_clip", lastEarLeftBeforeX)
+                    .put("ear_screen_left_center_after_clip", lastEarLeftAfterX)
+                    .put("ear_screen_right_center_before_clip", lastEarRightBeforeX)
+                    .put("ear_screen_right_center_after_clip", lastEarRightAfterX)
                     .put("ear_face_parallax_clip", lastEarFaceParallax)
                     .put("ear_screen_turn_signed", lastEarScreenTurn)
                     .put("maximum_ear_shared_shift_clip", maximumEarSharedShift)
@@ -268,8 +276,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("scale", stageScale)
                     .put("x", stageTranslateX)
                     .put("y", stageTranslateY)
-                    .put("pivot_x", stagePivotX)
-                    .put("pivot_y", stagePivotY));
+                    .put("pivot_x", 0f)
+                    .put("pivot_y", 0f));
             root.put("ear_right_mode", "sen_native_parameter_discovery");
             root.put("calibration", overlayCalibration.toJsonObject());
             root.put("maid_carrier_anchors", model == null
@@ -289,7 +297,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.20-picked-hair-root-and-visible-ear-shift";
+            return "0.1.21-ear-direction-and-sen-stage-gestures";
         }
     }
 
@@ -604,8 +612,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             }
         }
         lastEarScreenTurn = screenTurn;
+        // Device feedback: the prior sign moved the fins further in the wrong screen direction.
+        // Keep the test's clearly visible amplitude while reversing only this shared shift.
         lastEarSharedShift = geometryConstraintEnabled
-                ? -neutralSpan * .07f * screenTurn : 0f;
+                ? neutralSpan * .07f * screenTurn : 0f;
         if (Math.abs(lastEarSharedShift) > 1e-6f) {
             float[] shift = new Similarity2D(1f, 0f, lastEarSharedShift, 0f).toMatrix();
             overlayModel.applyClipTransform(leftEarProjection, shift);
@@ -621,6 +631,12 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             lastEarAfterSpan = 0f;
         } else {
             lastEarAfterSpan = afterRight[2] - afterLeft[0];
+            lastEarLeftBeforeX = (left[0] + left[2]) * .5f;
+            lastEarRightBeforeX = (right[0] + right[2]) * .5f;
+            lastEarLeftAfterX = (afterLeft[0] + afterLeft[2]) * .5f;
+            lastEarRightAfterX = (afterRight[0] + afterRight[2]) * .5f;
+            lastEarMeasuredSharedShift = (lastEarLeftAfterX - lastEarLeftBeforeX
+                    + lastEarRightAfterX - lastEarRightBeforeX) * .5f;
         }
         int index = geometryConstraintEnabled ? 1 : 0;
         geometryFrames[index]++;
@@ -1078,20 +1094,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         // filtered passes no longer receive model-layout-dependent scale or translation.
         destination.scaleRelative(localScale, localScale);
         destination.translateRelative(localX, localY);
-        if (target == model) updateStagePivot(target, destination);
         applyStageTransform(target, destination);
-    }
-
-    private void updateStagePivot(SenLive2DModel target, CubismMatrix44 baseProjection) {
-        float centerX = (target.getReferenceDrawableLeft()
-                + target.getReferenceDrawableRight()) * .5f;
-        float centerY = (target.getReferenceDrawableTop()
-                + target.getReferenceDrawableBottom()) * .5f;
-        float[] pivot = pointToClip(target, baseProjection, new float[]{centerX, centerY});
-        if (pivot != null) {
-            stagePivotX = pivot[0];
-            stagePivotY = pivot[1];
-        }
     }
 
     private void applyStageTransform(SenLive2DModel target, CubismMatrix44 destination) {
@@ -1099,12 +1102,14 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         if (Math.abs(scale - 1f) < .00001f
                 && Math.abs(stageTranslateX) < .00001f
                 && Math.abs(stageTranslateY) < .00001f) return;
+        // Sen's stage uses the screen origin as the scale origin. The UI compensates around the
+        // fingers' focus while pinching. A moving model pivot made the composite drift on zoom.
         float[] stage = {
                 scale, 0f, 0f, 0f,
                 0f, scale, 0f, 0f,
                 0f, 0f, 1f, 0f,
-                stageTranslateX + (1f - scale) * stagePivotX,
-                stageTranslateY + (1f - scale) * stagePivotY,
+                stageTranslateX,
+                stageTranslateY,
                 0f, 1f
         };
         target.applyClipTransform(destination, stage);

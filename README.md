@@ -3,6 +3,17 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.21
+
+- Keeps the manually selected ahoge root on the maid's top hair unchanged.
+- Reverses only the pair's shared horizontal shift in response to device feedback that the
+  previous version moved both fins farther in the wrong direction. The conspicuous 7% test
+  amplitude and existing actual outer-span cap remain, and the diagnostic now records the
+  rendered screen X before and after correction for both ears.
+- Follows Sen's tested pinch and drag behavior: zoom about the actual two-finger focus, clamp
+  stage translation, and reset the one-finger drag baseline after either finger is lifted.
+  Both models share a screen-centered stage scale rather than a pose-dependent maid pivot.
+
 ## v0.1.20
 
 - On the phone, tap “点选呆毛接入的头发位置”, then tap the actual hair connection in the neutral pose.

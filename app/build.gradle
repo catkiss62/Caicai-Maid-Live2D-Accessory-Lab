@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 21
-        versionName '0.1.20-picked-hair-root-and-visible-ear-shift'
+        versionCode 22
+        versionName '0.1.21-ear-direction-and-sen-stage-gestures'
     }
 
     signingConfigs {

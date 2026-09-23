@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.20 · 呆毛手选连接点";
+    private static final String VERSION = "v0.1.21 · 耳鳍方向与整体调整";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
@@ -350,7 +350,18 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     @Override public boolean onScale(ScaleGestureDetector detector) {
                         if (!stageAdjustmentEnabled) return false;
-                        stageScale = clamp(stageScale * detector.getScaleFactor(), .35f, 6f);
+                        float oldScale = stageScale;
+                        float nextScale = clamp(oldScale * detector.getScaleFactor(), .35f, 6f);
+                        if (Math.abs(nextScale - oldScale) < .0001f) return true;
+                        float focusX = detector.getFocusX() * 2f
+                                / Math.max(1, companionView.getWidth()) - 1f;
+                        float focusY = 1f - detector.getFocusY() * 2f
+                                / Math.max(1, companionView.getHeight());
+                        float ratio = nextScale / oldScale;
+                        stageX = focusX - (focusX - stageX) * ratio;
+                        stageY = focusY - (focusY - stageY) * ratio;
+                        stageScale = nextScale;
+                        clampStageTranslation();
                         applyStage();
                         return true;
                     }
@@ -373,10 +384,17 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 lastTouchX = event.getX();
                 lastTouchY = event.getY();
+            } else if (event.getActionMasked() == MotionEvent.ACTION_POINTER_UP) {
+                int remaining = event.getActionIndex() == 0 ? 1 : 0;
+                if (remaining < event.getPointerCount()) {
+                    lastTouchX = event.getX(remaining);
+                    lastTouchY = event.getY(remaining);
+                }
             } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE
                     && event.getPointerCount() == 1 && !scaleGestureDetector.isInProgress()) {
                 stageX += (event.getX() - lastTouchX) * 2f / Math.max(1, view.getWidth());
                 stageY -= (event.getY() - lastTouchY) * 2f / Math.max(1, view.getHeight());
+                clampStageTranslation();
                 lastTouchX = event.getX();
                 lastTouchY = event.getY();
                 applyStage();
@@ -502,6 +520,12 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         companionView.setStageTransform(stageScale, stageX, stageY);
     }
 
+    private void clampStageTranslation() {
+        float limit = .9f + .5f * stageScale;
+        stageX = clamp(stageX, -limit, limit);
+        stageY = clamp(stageY, -limit, limit);
+    }
+
     private void importPackage(Uri uri) {
         if (uri == null) return;
         showLoading("正在导入单 ZIP 模型包…");
@@ -599,7 +623,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.20.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.21.json");
         });
     }
 
