@@ -146,8 +146,8 @@ final class OverlayCalibration {
                 value.visible ? "显示" : "隐藏");
         if (group == CompositeOverlayGroup.EAR_FINS) {
             return base + String.format(Locale.ROOT,
-                    "\n对称旋转 %+.1f° · 间距 %+.2f · 中心轴旋转 %+.1f°",
-                    value.rotation, value.spacing, value.pairRotation);
+                    "\nSen原生双耳 · 整体旋转 %+.1f°",
+                    value.pairRotation);
         }
         return base;
     }
@@ -169,7 +169,10 @@ final class OverlayCalibration {
             return new Transform(.88f, -.02f, -.05f, true, 0f, 0f, 0f);
         }
         if (group == CompositeOverlayGroup.EAR_FINS) {
-            return new Transform(1.14f, .01f, -.29f, true, 8f, .22f, -10f);
+            // v0.1.2's scale/position and head-tilt compensation remain valid. The old symmetric
+            // rotation and spacing values belonged to an App-created mirrored ear and must not be
+            // applied to Sen's native two-ear rig.
+            return new Transform(1.14f, .01f, -.29f, true, 0f, 0f, -10f);
         }
         if (group == CompositeOverlayGroup.TAIL) {
             return new Transform(.96f, .02f, -.24f, true, 0f, 0f, 0f);

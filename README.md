@@ -3,6 +3,18 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.6
+
+- Removes the App-created right-ear mirror and the model-X left/right split. The complete authored
+  Sen ear rig is now discovered from `ParamL_angle`, `ParamR_angle`, and `ParamR_angle2`, then drawn
+  once so both sides keep their native independent keyforms.
+- Keeps the ahoge on its own six confirmed drawables and lets it follow the maid through the shared
+  head parameters instead of applying the ear attachment matrix to it.
+- Resets only the obsolete ear mirror rotation/spacing calibration; the confirmed ahoge, ear-fin,
+  and tail scale/position values remain the defaults.
+- Applies whole-stage transforms after projection with the same matrix order for the maid and every
+  filtered accessory pass, preventing zoom/pan from changing their relative spacing.
+
 ## v0.1.5
 
 - Applies stage, attachment, mirrored-ear and ear-rotation transforms after each model's own
@@ -29,9 +41,9 @@ from Sen: ahoge, paired fish ear fins, and fish tail.
   ahoge hierarchy are rendered.
 - Excludes `Part115` (rabbit-ear bow) from rendering and lists it in the exported dependency report.
 - Layer order: tail → maid through twin tails → ear fins → maid front layers → ahoge.
-- Mirrors compatible tracking parameters and applies per-frame anchor-delta correction.
-- Calibrates X/Y/scale for every accessory, plus symmetric fin rotation, spacing, and pair-axis
-  rotation with numeric feedback.
+- Mirrors compatible tracking parameters; only the tail retains per-frame two-point anchor
+  correction because the two head accessories use Sen's native head rig.
+- Calibrates X/Y/scale for every accessory, plus whole-pair ear-fin rotation with numeric feedback.
 - Provides a fully static diagnostic baseline and repeatable head/body/automatic motion sweeps.
 - Exposes the owner's approved expression, action, outfit, shrink, and click presets. Black socks
   are the default; the initial sock button therefore reads `白袜`.

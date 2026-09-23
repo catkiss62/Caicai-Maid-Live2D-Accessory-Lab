@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 6
-        versionName '0.1.5-clip-space-attachments'
+        versionCode 7
+        versionName '0.1.6-native-ear-rig'
     }
 
     signingConfigs {

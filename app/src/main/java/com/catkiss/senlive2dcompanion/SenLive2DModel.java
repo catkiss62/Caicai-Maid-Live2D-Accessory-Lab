@@ -67,8 +67,10 @@ final class SenLive2DModel extends CubismUserModel {
     private static final String[] ACCESSORY_TAIL_ORIGIN_PART_IDS = {"Part93"};
     private static final String[] ACCESSORY_TAIL_DIRECTION_PART_IDS = {"Part83"};
     private static final String[] ACCESSORY_TAIL_PART_IDS = {"Part239"};
-    // Part113 = 兔耳. Include its three live meshes and three authored alternate/mask meshes,
-    // without walking into any neighbouring head or ahoge hierarchy.
+    // Part113 = 兔耳. These six meshes are the confirmed visible seed, not a left-ear list.
+    // The compiled moc3 may keep the other side outside Part113 while reusing the same atlas
+    // region. resolveRabbitEarDrawables() expands this seed by observing the three authored ear
+    // parameters instead of guessing a side from model-local X coordinates.
     private static final String[] EAR_FIN_DRAWABLE_IDS = {
             "ArtMesh631", "ArtMesh1095", "ArtMesh1021",
             "ArtMesh146", "ArtMesh629", "ArtMesh1019"
@@ -173,12 +175,9 @@ final class SenLive2DModel extends CubismUserModel {
     private boolean[] mainHighLayerFilter;
     private final EnumMap<CompositeOverlayGroup, boolean[]> compositeGroupFilters =
             new EnumMap<>(CompositeOverlayGroup.class);
-    private boolean[] earLeftFilter;
-    private boolean[] earRightFilter;
-    private boolean mirrorLeftEarForRight;
+    private final Map<String, Set<String>> rabbitEarDiscoveryHits = new LinkedHashMap<>();
+    private String rabbitEarDiscoveryMode = "unresolved";
     private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
-    private final CubismMatrix44 clipTransformMvp = CubismMatrix44.create();
-    private final CubismMatrix44 inverseModelMatrix = CubismMatrix44.create();
     private final EnumMap<CompositeOverlayGroup, float[]> neutralAttachmentPoses =
             new EnumMap<>(CompositeOverlayGroup.class);
     private boolean staticMode;
@@ -455,11 +454,6 @@ final class SenLive2DModel extends CubismUserModel {
         drawWithFilter(matrix, compositeGroupFilters.get(group));
     }
 
-    void drawEarSide(CubismMatrix44 matrix, boolean left) {
-        drawWithFilter(matrix, left || mirrorLeftEarForRight
-                ? earLeftFilter : earRightFilter);
-    }
-
     private void drawWithFilter(CubismMatrix44 matrix, boolean[] filter) {
         if (model == null || getRenderer() == null) return;
         // A frame can draw the same model several times (low layer, high layer and accessories).
@@ -519,16 +513,9 @@ final class SenLive2DModel extends CubismUserModel {
                 collectChildDrawables(ACCESSORY_TAIL_PART_IDS), null);
         Set<Integer> ahoge = collectExistingDrawables(AHOGE_DRAWABLE_IDS);
         putCompositeFilter(CompositeOverlayGroup.AHOGE, count, ahoge, null);
-        Set<Integer> ears = collectExistingDrawables(EAR_FIN_DRAWABLE_IDS);
+        Set<Integer> earSeeds = collectExistingDrawables(EAR_FIN_DRAWABLE_IDS);
+        Set<Integer> ears = resolveRabbitEarDrawables(earSeeds);
         putCompositeFilter(CompositeOverlayGroup.EAR_FINS, count, ears, null);
-        earLeftFilter = new boolean[count];
-        earRightFilter = new boolean[count];
-        for (int index : ears) {
-            if (drawableCenterX(index) < 0f) earLeftFilter[index] = true;
-            else earRightFilter[index] = true;
-        }
-        mirrorLeftEarForRight = countEnabled(earLeftFilter) > 0
-                && countEnabled(earRightFilter) == 0;
 
         StringBuilder detail = new StringBuilder("Sen配件网格");
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
@@ -537,9 +524,74 @@ final class SenLive2DModel extends CubismUserModel {
                     .append(countEnabled(compositeGroupFilters.get(group)));
         }
         appendAppearanceDetail(detail.toString());
-        if (mirrorLeftEarForRight) {
-            appendAppearanceDetail("耳鳍右侧：由左侧 Part113 网格中心镜像");
+        appendAppearanceDetail("耳鳍：原生参数差分 " + ears.size()
+                + "（种子 " + earSeeds.size() + "）· 单次绘制");
+    }
+
+    /**
+     * Finds the complete authored rabbit-ear subsystem without depending on the editor's Part
+     * hierarchy. A texture atlas can contain one ear image while the moc3 owns multiple meshes
+     * that sample it, so model-local X and PNG layer count are not valid left/right signals.
+     */
+    private Set<Integer> resolveRabbitEarDrawables(Set<Integer> seeds) {
+        Set<Integer> result = new LinkedHashSet<>(seeds);
+        rabbitEarDiscoveryHits.clear();
+        rabbitEarDiscoveryMode = "seed_only";
+        if (model == null || seeds.isEmpty()) return result;
+
+        Set<Integer> seedTextures = new LinkedHashSet<>();
+        for (int seed : seeds) {
+            if (seed >= 0 && seed < model.getDrawableCount()) {
+                seedTextures.add(model.getDrawableTextureIndex(seed));
+            }
         }
+        float[] savedParameters = new float[model.getParameterCount()];
+        captureParameterValues(savedParameters);
+        model.update();
+        DrawableSignature[] baseline = captureDrawableSignatures();
+        boolean scanned = false;
+        try {
+            for (String parameterId : RABBIT_EAR_PHYSICS_OUTPUT_IDS) {
+                int parameterIndex = findParameterIndex(parameterId);
+                if (parameterIndex < 0) continue;
+                scanned = true;
+                Set<String> hits = new LinkedHashSet<>();
+                float minimum = model.getParameterMinimumValue(parameterIndex);
+                float maximum = model.getParameterMaximumValue(parameterIndex);
+                float[] probes = {minimum, maximum};
+                for (float probe : probes) {
+                    restoreParameterValues(savedParameters);
+                    model.getModel().getParameterViews()[parameterIndex].setValue(probe);
+                    model.update();
+                    for (int drawable = 0; drawable < model.getDrawableCount(); drawable++) {
+                        if (!seedTextures.contains(model.getDrawableTextureIndex(drawable))) continue;
+                        // Dormant animal-ear variants share this atlas. Keep the currently active
+                        // rig plus the confirmed Part113 seed, and do not revive unrelated ears.
+                        if (baseline[drawable].opacity <= .001f && !seeds.contains(drawable)) {
+                            continue;
+                        }
+                        DrawableSignature current = DrawableSignature.capture(model, drawable);
+                        if (!baseline[drawable].differsFrom(current)) continue;
+                        result.add(drawable);
+                        hits.add(model.getDrawableId(drawable).getString());
+                    }
+                }
+                rabbitEarDiscoveryHits.put(parameterId, hits);
+            }
+        } finally {
+            restoreParameterValues(savedParameters);
+            updateModelWithOutfitShapeLock();
+        }
+        if (scanned) rabbitEarDiscoveryMode = "native_parameter_differential";
+        return result;
+    }
+
+    private DrawableSignature[] captureDrawableSignatures() {
+        DrawableSignature[] result = new DrawableSignature[model.getDrawableCount()];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = DrawableSignature.capture(model, i);
+        }
+        return result;
     }
 
     private static int medianRenderOrder(int[] renderOrders) {
@@ -558,19 +610,6 @@ final class SenLive2DModel extends CubismUserModel {
             if (index >= 0 && index < count) filter[index] = true;
         }
         compositeGroupFilters.put(group, filter);
-    }
-
-    private float drawableCenterX(int index) {
-        if (index < 0 || index >= model.getDrawableCount()) return 0f;
-        float[] vertices = model.getDrawableVertices(index);
-        if (vertices == null || vertices.length < 2) return 0f;
-        float minimum = Float.POSITIVE_INFINITY;
-        float maximum = Float.NEGATIVE_INFINITY;
-        for (int i = 0; i + 1 < vertices.length; i += 2) {
-            minimum = Math.min(minimum, vertices[i]);
-            maximum = Math.max(maximum, vertices[i]);
-        }
-        return (minimum + maximum) * .5f;
     }
 
     private static void enableDrawables(boolean[] filter, Set<Integer> indices) {
@@ -625,6 +664,16 @@ final class SenLive2DModel extends CubismUserModel {
             groups.put(group.id, entries);
         }
         root.put("groups", groups);
+
+        JSONObject earDiscovery = new JSONObject();
+        earDiscovery.put("mode", rabbitEarDiscoveryMode);
+        JSONObject parameterHits = new JSONObject();
+        for (Map.Entry<String, Set<String>> entry : rabbitEarDiscoveryHits.entrySet()) {
+            parameterHits.put(entry.getKey(), new JSONArray(entry.getValue()));
+        }
+        earDiscovery.put("parameter_hits", parameterHits);
+        earDiscovery.put("manual_mirror", false);
+        root.put("rabbit_ear_discovery", earDiscovery);
 
         Set<Integer> part115 = collectChildDrawables(new String[]{"Part115"});
         JSONArray excludedBow = new JSONArray();
@@ -696,19 +745,12 @@ final class SenLive2DModel extends CubismUserModel {
         return value == null ? null : value.clone();
     }
 
-    float[] currentEarCenter(boolean left) {
-        return centerOfFilter(left ? earLeftFilter : earRightFilter);
-    }
-
-    boolean mirrorsLeftEarForRight() {
-        return mirrorLeftEarForRight;
-    }
-
-    private float[] centerOfFilter(boolean[] filter) {
+    float[] currentCompositeGroupCenter(CompositeOverlayGroup group) {
+        boolean[] filter = compositeGroupFilters.get(group);
         if (filter == null) return null;
         Set<Integer> indices = new LinkedHashSet<>();
         for (int i = 0; i < filter.length; i++) if (filter[i]) indices.add(i);
-        return centerOf(indices);
+        return centerOfVisibleOrAll(indices);
     }
 
     private float[] centerOfVisibleOrAll(Set<Integer> indices) {
@@ -770,22 +812,15 @@ final class SenLive2DModel extends CubismUserModel {
                 destination.getArray());
     }
 
-    /**
-     * Applies a transform expressed in final OpenGL clip coordinates without letting the model's
-     * layout matrix scale or translate it a second time.  The renderer normally builds
-     * {@code MVP = modelMatrix * projection}; therefore a clip-space transform C must be converted
-     * back to projection space as {@code inverse(modelMatrix) * C * MVP}.
-     */
+    /** Appends a final clip-space transform after model layout and projection. */
     void applyClipTransform(CubismMatrix44 projection, float[] clipTransform) {
-        if (modelMatrix == null || projection == null || clipTransform == null
+        if (projection == null || clipTransform == null
                 || clipTransform.length != 16) return;
-        clipTransformMvp.setMatrix(projection);
-        CubismMatrix44.multiply(modelMatrix.getArray(), clipTransformMvp.getArray(),
-                clipTransformMvp.getArray());
-        CubismMatrix44.multiply(clipTransform, clipTransformMvp.getArray(),
-                clipTransformMvp.getArray());
-        modelMatrix.getInvert(inverseModelMatrix);
-        CubismMatrix44.multiply(inverseModelMatrix.getArray(), clipTransformMvp.getArray(),
+        // Cubism draws modelMatrix * projection. Right-multiplication therefore yields
+        // modelMatrix * projection * clipTransform, so every model and every filtered pass shares
+        // exactly the same final stage transform. The previous left-multiplication/conjugation
+        // changed the transform for each model layout and caused accessories to fly apart.
+        CubismMatrix44.multiply(projection.getArray(), clipTransform,
                 projection.getArray());
     }
 
@@ -1882,6 +1917,72 @@ final class SenLive2DModel extends CubismUserModel {
                     (float) weights.getDouble(0), (float) weights.getDouble(1),
                     (float) weights.getDouble(2));
             return result.currentPoint(model) == null ? null : result;
+        }
+    }
+
+    /** Compact geometry fingerprint used only during the one-time rabbit-ear dependency scan. */
+    private static final class DrawableSignature {
+        private static final float GEOMETRY_EPSILON = 0.00001f;
+        private static final float OPACITY_EPSILON = 0.0001f;
+
+        final float opacity;
+        final float minimumX;
+        final float maximumX;
+        final float minimumY;
+        final float maximumY;
+        final float sumX;
+        final float sumY;
+        final float sumSquares;
+
+        DrawableSignature(float opacity, float minimumX, float maximumX,
+                          float minimumY, float maximumY, float sumX, float sumY,
+                          float sumSquares) {
+            this.opacity = opacity;
+            this.minimumX = minimumX;
+            this.maximumX = maximumX;
+            this.minimumY = minimumY;
+            this.maximumY = maximumY;
+            this.sumX = sumX;
+            this.sumY = sumY;
+            this.sumSquares = sumSquares;
+        }
+
+        static DrawableSignature capture(
+                com.live2d.sdk.cubism.framework.model.CubismModel model, int drawable) {
+            float[] vertices = model.getDrawableVertices(drawable);
+            float minX = Float.POSITIVE_INFINITY;
+            float maxX = Float.NEGATIVE_INFINITY;
+            float minY = Float.POSITIVE_INFINITY;
+            float maxY = Float.NEGATIVE_INFINITY;
+            float sumX = 0f;
+            float sumY = 0f;
+            float sumSquares = 0f;
+            if (vertices != null) for (int i = 0; i + 1 < vertices.length; i += 2) {
+                float x = vertices[i];
+                float y = vertices[i + 1];
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+                sumX += x;
+                sumY += y;
+                sumSquares += x * x + y * y;
+            }
+            if (!Float.isFinite(minX)) minX = maxX = minY = maxY = 0f;
+            return new DrawableSignature(model.getDrawableOpacity(drawable),
+                    minX, maxX, minY, maxY, sumX, sumY, sumSquares);
+        }
+
+        boolean differsFrom(DrawableSignature other) {
+            return other == null
+                    || Math.abs(opacity - other.opacity) > OPACITY_EPSILON
+                    || Math.abs(minimumX - other.minimumX) > GEOMETRY_EPSILON
+                    || Math.abs(maximumX - other.maximumX) > GEOMETRY_EPSILON
+                    || Math.abs(minimumY - other.minimumY) > GEOMETRY_EPSILON
+                    || Math.abs(maximumY - other.maximumY) > GEOMETRY_EPSILON
+                    || Math.abs(sumX - other.sumX) > GEOMETRY_EPSILON
+                    || Math.abs(sumY - other.sumY) > GEOMETRY_EPSILON
+                    || Math.abs(sumSquares - other.sumSquares) > GEOMETRY_EPSILON;
         }
     }
 

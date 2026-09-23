@@ -32,9 +32,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private static final String TAG = "SenNativeCubism";
-    // The v0.1.3 device test confirmed the isolated ear-fin dynamics.  Attach all three groups
-    // with two-point head/body frames while leaving each accessory's internal mesh physics intact.
-    private static final boolean DYNAMIC_ATTACHMENT_ENABLED = true;
+    // The tail's two-point body attachment was confirmed on-device. Head accessories instead use
+    // Ruby -> Sen parameter drive and their own authored rigs; applying another shared head matrix
+    // made the ahoge and ears behave as one object and amplified stage transforms.
+    private static final boolean TAIL_ATTACHMENT_ENABLED = true;
 
     private final Context context;
     private final Listener listener;
@@ -42,8 +43,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private final CubismMatrix44 projection = CubismMatrix44.create();
     private final CubismMatrix44 rubyProjection = CubismMatrix44.create();
     private final CubismMatrix44 senGroupProjection = CubismMatrix44.create();
-    private final CubismMatrix44 earLeftProjection = CubismMatrix44.create();
-    private final CubismMatrix44 earRightProjection = CubismMatrix44.create();
     private final CubismMatrix44 interactionMvp = CubismMatrix44.create();
 
     private SenLive2DModel model;
@@ -114,25 +113,23 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     void emitCompositeReport() {
         try {
             JSONObject root = new JSONObject();
-            root.put("schema", "caicai-maid-accessory-calibration-v1");
+            root.put("schema", "caicai-maid-accessory-calibration-v2");
             root.put("app_version", appVersionName());
             root.put("generated_at_epoch_ms", System.currentTimeMillis());
             root.put("main_model", "caicai_maid");
             root.put("accessories", new org.json.JSONArray(
                     Arrays.asList("ahoge", "ear_fins", "tail")));
             root.put("test_motion", compositeTestMotion.id);
-            root.put("attachment_mode", DYNAMIC_ATTACHMENT_ENABLED
-                    ? "dynamic_two_point_anchor" : "fixed_calibrated");
-            root.put("attachment_transform_space", "post_model_clip");
+            root.put("attachment_mode", TAIL_ATTACHMENT_ENABLED
+                    ? "tail_two_point_head_parameter_driven" : "parameter_driven");
+            root.put("attachment_transform_space", "shared_post_projection");
             root.put("stage_transform", new JSONObject()
                     .put("scale", stageScale)
                     .put("x", stageTranslateX)
                     .put("y", stageTranslateY)
                     .put("pivot_x", stagePivotX)
                     .put("pivot_y", stagePivotY));
-            root.put("ear_right_mode", overlayModel != null
-                    && overlayModel.mirrorsLeftEarForRight()
-                    ? "mirrored_from_left" : "authored_mesh");
+            root.put("ear_right_mode", "sen_native_parameter_discovery");
             root.put("calibration", overlayCalibration.toJsonObject());
             root.put("sen_runtime_inventory", overlayModel == null
                     ? JSONObject.NULL : overlayModel.buildCompositeInventory());
@@ -147,7 +144,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.2.0-calibration-lab";
+            return "0.1.6-native-ear-rig";
         }
     }
 
@@ -338,7 +335,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        if (DYNAMIC_ATTACHMENT_ENABLED) {
+        if (TAIL_ATTACHMENT_ENABLED && group == CompositeOverlayGroup.TAIL) {
             applyAttachmentCorrection(group, senGroupProjection);
         }
         overlayModel.drawSenGroup(senGroupProjection, group);
@@ -351,66 +348,17 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        if (DYNAMIC_ATTACHMENT_ENABLED) {
-            applyAttachmentCorrection(group, senGroupProjection);
-        }
-        earLeftProjection.setMatrix(senGroupProjection);
-        earRightProjection.setMatrix(senGroupProjection);
-
-        float[] leftModelCenter = overlayModel.currentEarCenter(true);
-        float[] leftCenter = pointToClip(overlayModel, senGroupProjection, leftModelCenter);
-        boolean mirrorRight = overlayModel.mirrorsLeftEarForRight();
-        float[] rightCenter;
-        float pairX;
-        float pairY;
-        if (mirrorRight && leftModelCenter != null && leftCenter != null) {
-            float[] axis = pointToClip(overlayModel, senGroupProjection,
-                    new float[]{0f, leftModelCenter[1]});
-            if (axis == null) {
-                overlayModel.drawSenGroup(senGroupProjection, group);
-                return;
-            }
-            pairX = axis[0];
-            pairY = leftCenter[1];
-            rightCenter = new float[]{2f * pairX - leftCenter[0], leftCenter[1]};
-            applyMirrorAroundX(earRightProjection, pairX);
-        } else {
-            rightCenter = pointToClip(overlayModel, senGroupProjection,
-                    overlayModel.currentEarCenter(false));
-            if (leftCenter == null || rightCenter == null) {
-                overlayModel.drawSenGroup(senGroupProjection, group);
-                return;
-            }
-            pairX = (leftCenter[0] + rightCenter[0]) * .5f;
-            pairY = (leftCenter[1] + rightCenter[1]) * .5f;
-        }
-        if (leftCenter == null || rightCenter == null) {
-            overlayModel.drawSenGroup(senGroupProjection, group);
-            return;
-        }
+        // The complete Sen ear rig is one authored object. Draw it once so ParamL_angle,
+        // ParamR_angle and ParamR_angle2 keep their original independent left/right keyforms.
+        // Only the pair rotation survives from the old tuning UI; manual spacing and mirrored
+        // per-side rotation belonged to the removed reconstruction path.
         OverlayCalibration.Transform ear = calibration.get(group);
-        applyRotateAround(earLeftProjection, ear.pairRotation, pairX, pairY);
-        applyRotateAround(earRightProjection, ear.pairRotation, pairX, pairY);
-
-        float spacing = ear.spacing * .15f * stageScale;
-        applyClipTranslation(earLeftProjection, -spacing, 0f);
-        applyClipTranslation(earRightProjection, spacing, 0f);
-        applyRotateAround(earLeftProjection, ear.rotation,
-                leftCenter[0] - spacing, leftCenter[1]);
-        applyRotateAround(earRightProjection, -ear.rotation,
-                rightCenter[0] + spacing, rightCenter[1]);
-        overlayModel.drawEarSide(earLeftProjection, true);
-        overlayModel.drawEarSide(earRightProjection, false);
-    }
-
-    private void applyMirrorAroundX(CubismMatrix44 matrix, float centerX) {
-        float[] mirror = {
-                -1f, 0f, 0f, 0f,
-                0f, 1f, 0f, 0f,
-                0f, 0f, 1f, 0f,
-                2f * centerX, 0f, 0f, 1f
-        };
-        overlayModel.applyClipTransform(matrix, mirror);
+        float[] modelCenter = overlayModel.currentCompositeGroupCenter(group);
+        float[] center = pointToClip(overlayModel, senGroupProjection, modelCenter);
+        if (center != null) {
+            applyRotateAround(senGroupProjection, ear.pairRotation, center[0], center[1]);
+        }
+        overlayModel.drawSenGroup(senGroupProjection, group);
     }
 
     private void applyAttachmentCorrection(CompositeOverlayGroup group,
@@ -427,10 +375,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         if (mainNow == null || mainNeutral == null
                 || accessoryNow == null || accessoryNeutral == null) return;
 
-        // First obtain the maid's neutral -> current head/body motion.  Apply that motion to the
-        // donor's calibrated neutral frame, then replace the donor's own incompatible rigid frame
-        // with the target frame.  Because the source frame comes from rigid face/torso parts (not
-        // the accessory mesh), ear twitch, ahoge bend and tail swing remain visible.
+        // The tail is the only group that still needs a two-point correction. First obtain the
+        // maid's neutral -> current body motion, apply it to the donor's calibrated neutral frame,
+        // then replace the donor's incompatible rigid body frame with that target frame. The
+        // source points do not come from the tail mesh, so its local swing remains visible.
         Similarity2D maidMotion = Similarity2D.between(mainNeutral, mainNow, .35f, 2.5f);
         float[] targetAccessoryPose = maidMotion.transformPose(accessoryNeutral);
         Similarity2D correction = Similarity2D.between(
@@ -475,17 +423,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 0f, 1f
         };
         overlayModel.applyClipTransform(matrix, rotate);
-    }
-
-    private void applyClipTranslation(CubismMatrix44 matrix, float x, float y) {
-        if (Math.abs(x) < .00001f && Math.abs(y) < .00001f) return;
-        float[] translate = {
-                1f, 0f, 0f, 0f,
-                0f, 1f, 0f, 0f,
-                0f, 0f, 1f, 0f,
-                x, y, 0f, 1f
-        };
-        overlayModel.applyClipTransform(matrix, translate);
     }
 
     private static final class Similarity2D {
@@ -557,9 +494,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             target.fitHeight(2.0f);
             destination.scale(1.0f / aspectRatio, 1.0f);
         }
-        // Keep the already confirmed accessory calibration in its original projection layer.
-        // The whole-stage transform is applied afterwards in final clip space, so model layout
-        // offsets are not scaled a second time and local accessory offsets scale with the model.
+        // Keep confirmed accessory calibration in the projection layer, then append one common
+        // post-projection stage transform. applyClipTransform() right-multiplies this matrix, so
+        // filtered passes no longer receive model-layout-dependent scale or translation.
         destination.scaleRelative(localScale, localScale);
         destination.translateRelative(localX, localY);
         if (target == model) updateStagePivot(target, destination);

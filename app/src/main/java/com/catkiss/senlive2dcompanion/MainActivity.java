@@ -40,7 +40,8 @@ import java.util.zip.ZipInputStream;
 /** 菜菜女仆主模型 + Sen 呆毛、耳鳍、尾巴配件实验室。 */
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
-    private static final String VERSION = "v0.1.5 · 挂件坐标与整体轴心修复";
+    private static final String CALIBRATION_KEY = "accessory_calibration_v2_native_ears";
+    private static final String VERSION = "v0.1.6 · 原生双耳与独立呆毛";
     private static final long MAX_EXTRACTED_BYTES = 1_500_000_000L;
     private static final int MAX_ZIP_ENTRIES = 8_000;
 
@@ -79,7 +80,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         modelRoot = new File(getFilesDir(), "caicai-accessory-package");
         importRoot = new File(getFilesDir(), "caicai-accessory-import-temp");
         calibration = OverlayCalibration.fromJson(
-                prefs.getString("accessory_calibration_v1", ""));
+                prefs.getString(CALIBRATION_KEY, ""));
         selectedGroup = CompositeOverlayGroup.fromId(
                 prefs.getString("calibration_group", CompositeOverlayGroup.EAR_FINS.id));
         staticMode = prefs.getBoolean("static_mode", false);
@@ -150,17 +151,14 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 new LinearLayout.LayoutParams(0, dp(42), 2f));
         panel.addView(moveRow);
 
-        panel.addView(section("耳鳍对称调节"));
-        LinearLayout earRow1 = row();
-        earRow1.addView(actionButton("向外转", () -> adjustEar(1f, 0, 0)), weighted());
-        earRow1.addView(actionButton("向内转", () -> adjustEar(-1f, 0, 0)), weighted());
-        earRow1.addView(actionButton("加间距", () -> adjustEar(0, .01f, 0)), weighted());
-        earRow1.addView(actionButton("减间距", () -> adjustEar(0, -.01f, 0)), weighted());
-        panel.addView(earRow1);
+        panel.addView(section("耳鳍原生双耳调节"));
         LinearLayout earRow2 = row();
-        earRow2.addView(actionButton("中心左转", () -> adjustEar(0, 0, 1f)), weighted());
-        earRow2.addView(actionButton("中心右转", () -> adjustEar(0, 0, -1f)), weighted());
+        earRow2.addView(actionButton("整体左转", () -> adjustEarPairRotation(1f)), weighted());
+        earRow2.addView(actionButton("整体右转", () -> adjustEarPairRotation(-1f)), weighted());
         panel.addView(earRow2);
+        panel.addView(text("左右耳、间距与各自动作由 Sen 原生网格和参数负责；"
+                        + "本版不再使用 App 镜像。",
+                9, Color.rgb(180, 159, 199)));
         calibrationText = text("", 10, Color.rgb(225, 204, 240));
         panel.addView(calibrationText);
         updateCalibrationText();
@@ -315,8 +313,8 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         persistCalibration();
     }
 
-    private void adjustEar(float rotation, float spacing, float pairRotation) {
-        calibration = calibration.withEarDelta(rotation, spacing, pairRotation);
+    private void adjustEarPairRotation(float pairRotation) {
+        calibration = calibration.withEarDelta(0f, 0f, pairRotation);
         selectedGroup = CompositeOverlayGroup.EAR_FINS;
         persistCalibration();
     }
@@ -341,7 +339,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     }
 
     private void persistCalibration() {
-        prefs.edit().putString("accessory_calibration_v1",
+        prefs.edit().putString(CALIBRATION_KEY,
                 calibration.toPreferenceJson()).apply();
         companionView.setOverlayCalibration(calibration.toPreferenceJson());
         updateCalibrationText();
@@ -469,7 +467,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.5.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.6.json");
         });
     }
 
