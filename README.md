@@ -8,8 +8,9 @@ from Sen: ahoge, paired fish ear fins, and fish tail.
 - Uses the continuous signed maid head turn for the ear pair's shared screen shift. The
   previous switch to face-mesh parallax at a hard threshold could jump during head sweeps.
   Keeps the proven 7% shift, outer-span constraint, native ear motion, and stage gestures.
-- Leaves the manually picked hair anchor and ahoge secondary bend intact. The v0.1.20
-  neutral-pose diagnostic cannot distinguish the visual hair drift reported on v0.1.21.
+- Keeps the hand-picked ahoge root fixed while allowing all six Sen ahoge meshes to follow a
+  bounded portion of the maid top-hair section's local scale and rotation in 3D head poses.
+  Keeps native segment motion intact and reports the actual correction for phone comparison.
 
 ## v0.1.21
 

@@ -93,6 +93,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private final float[] maximumEarCorrection = new float[2];
     private float maximumEarSharedShift;
     private float maximumAhogeFlexAngle;
+    private float lastAhogeHairPoseScale = 1f;
+    private float lastAhogeHairPoseAngle;
+    private float maximumAhogeHairPoseAngle;
     private final float[] maximumRootCorrection = new float[2];
     private float lastEarBeforeSpan;
     private float lastEarAfterSpan;
@@ -224,6 +227,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("root_to_hair_target_before_clip", lastRootBeforeGap)
                     .put("root_to_hair_target_after_clip", lastRootCorrection)
                     .put("ahoge_flex_angle_degrees", (float) Math.toDegrees(ahogeLagAngle))
+                    .put("ahoge_hair_pose_relative_scale", lastAhogeHairPoseScale)
+                    .put("ahoge_hair_pose_relative_angle_degrees",
+                            (float) Math.toDegrees(lastAhogeHairPoseAngle))
+                    .put("maximum_ahoge_hair_pose_relative_angle_degrees",
+                            (float) Math.toDegrees(maximumAhogeHairPoseAngle))
                     .put("maximum_ahoge_flex_angle_degrees", (float) Math.toDegrees(maximumAhogeFlexAngle))
                     .put("maximum_root_gap_baseline_clip", maximumRootCorrection[0])
                     .put("maximum_root_gap_new_clip", maximumRootCorrection[1])
@@ -812,6 +820,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         overlayModel.applyClipTransform(accessoryProjection,
                 new Similarity2D(1f, 0f, targetRootX - rootBefore[0],
                         targetRootY - rootBefore[1]).toMatrix());
+        // The root is already locked to the hand-picked point. Follow the orientation and
+        // perspective of the nearby top-hair carrier, relative to the old
+        // whole-head motion. Apply one bounded transform to all six donor meshes about the root;
+        // changing vertices separately can split or freeze the lower strand.
+        applyMaidHairPoseAroundRoot(accessoryProjection, targetRootX, targetRootY);
         float[] rootAfter = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.currentAhogeRootPoint());
         if (rootAfter != null) {
@@ -823,6 +836,37 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         // the maid's actual turn; the Sen direction point is never forced to a maid direction.
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
                 model.horizontalHeadTurnSigned());
+    }
+
+    private void applyMaidHairPoseAroundRoot(CubismMatrix44 accessoryProjection,
+                                             float rootX, float rootY) {
+        lastAhogeHairPoseScale = 1f;
+        lastAhogeHairPoseAngle = 0f;
+        float[] hairNeutral = triangleToClip(model, maidProjection,
+                model.neutralCarrierTriangle(CompositeOverlayGroup.AHOGE));
+        float[] hairNow = triangleToClip(model, maidProjection,
+                model.currentCarrierTriangle(CompositeOverlayGroup.AHOGE));
+        Similarity2D rigidHead = currentGrossHeadMotion(.85f, .70f, 1.35f);
+        if (hairNeutral == null || hairNow == null || rigidHead == null) return;
+        Similarity2D hairMotion = Similarity2D.betweenTriangle(
+                hairNeutral, hairNow, .50f, 1.80f);
+        float headScale = (float) Math.hypot(rigidHead.a, rigidHead.b);
+        float hairScale = (float) Math.hypot(hairMotion.a, hairMotion.b);
+        if (!Float.isFinite(headScale) || !Float.isFinite(hairScale)
+                || headScale < 1e-5f) return;
+        // Let the selected hair section contribute visibly, but bound departures from the
+        // already proven face-following pose. Both factors are exactly identity at neutral.
+        float scale = clamp(1f + .65f * (hairScale / headScale - 1f), .78f, 1.22f);
+        float angle = clamp(.65f * wrapRadians(
+                hairMotion.angleRadians() - rigidHead.angleRadians()), -.18f, .18f);
+        float a = scale * (float) Math.cos(angle);
+        float b = scale * (float) Math.sin(angle);
+        overlayModel.applyClipTransform(accessoryProjection,
+                new Similarity2D(a, b, rootX - a * rootX + b * rootY,
+                        rootY - b * rootX - a * rootY).toMatrix());
+        lastAhogeHairPoseScale = scale;
+        lastAhogeHairPoseAngle = angle;
+        maximumAhogeHairPoseAngle = Math.max(maximumAhogeHairPoseAngle, Math.abs(angle));
     }
 
     /** The accepted v0.1.16 head path, kept intact for one-tap on-device comparison. */
