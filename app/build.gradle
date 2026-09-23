@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 11
-        versionName '0.1.10-ahoge-root-bind-head-tests'
+        versionCode 12
+        versionName '0.1.11-triangle-carrier-bind'
     }
 
     signingConfigs {

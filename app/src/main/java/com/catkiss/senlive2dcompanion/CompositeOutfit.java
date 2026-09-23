@@ -1,8 +1,7 @@
 package com.catkiss.senlive2dcompanion;
 
 enum CompositeOutfit {
-    RUBY_ORIGINAL("ruby_original", "Ruby 原装"),
-    SEN_MAID("sen_maid", "Sen 女仆装");
+    MAID_WITH_SEN_ACCESSORIES("maid_with_sen_accessories", "菜菜女仆 + Sen 三配件");
 
     final String id;
     final String displayName;
@@ -14,6 +13,7 @@ enum CompositeOutfit {
 
     static CompositeOutfit fromId(String id) {
         for (CompositeOutfit value : values()) if (value.id.equals(id)) return value;
-        return RUBY_ORIGINAL;
+        // Old private-package identifiers map to the one supported maid-plus-accessories layout.
+        return MAID_WITH_SEN_ACCESSORIES;
     }
 }

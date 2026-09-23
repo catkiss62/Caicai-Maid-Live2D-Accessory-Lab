@@ -1,6 +1,6 @@
 package com.catkiss.senlive2dcompanion;
 
 enum CompositeModelRole {
-    RUBY_PRIMARY,
-    SEN_OVERLAY
+    MAID_PRIMARY,
+    SEN_ACCESSORY_DONOR
 }

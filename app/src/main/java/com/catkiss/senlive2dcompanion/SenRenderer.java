@@ -32,18 +32,16 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private static final String TAG = "SenNativeCubism";
-    // Ruby and Sen do not share one rigid head topology. Their former second head anchors were
-    // actually authored accessories (Ruby's head ornament and Sen's maid headband), so using them
-    // as a two-point frame made the accessories turn opposite to the visible face. Keep the ear
-    // pair on the verified compatible parameter drive, bind the ahoge by its confirmed root point,
-    // and reserve the independently verified two-point correction for the tail's body frame.
-    private static final boolean TAIL_ATTACHMENT_ENABLED = true;
+    // The maid and Sen have different compiled deformation hierarchies. Shared parameters keep
+    // local physics alive, while fixed carrier triangles replace the incompatible whole-head and
+    // whole-body motion for all three accessory passes.
+    private static final boolean TRIANGLE_CARRIER_ATTACHMENT_ENABLED = true;
 
     private final Context context;
     private final Listener listener;
     private final NativeTextureManager textures = new NativeTextureManager();
     private final CubismMatrix44 projection = CubismMatrix44.create();
-    private final CubismMatrix44 rubyProjection = CubismMatrix44.create();
+    private final CubismMatrix44 maidProjection = CubismMatrix44.create();
     private final CubismMatrix44 senGroupProjection = CubismMatrix44.create();
     private final CubismMatrix44 interactionMvp = CubismMatrix44.create();
 
@@ -64,7 +62,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float stagePivotY;
     private volatile OverlayCalibration overlayCalibration = OverlayCalibration.defaults();
     private volatile CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
-    private volatile CompositeOutfit compositeOutfit = CompositeOutfit.RUBY_ORIGINAL;
+    private volatile CompositeOutfit compositeOutfit =
+            CompositeOutfit.MAID_WITH_SEN_ACCESSORIES;
     private volatile boolean touchFollowEnabled = true;
     private volatile boolean staticMode;
     private volatile float lipSyncValue;
@@ -79,12 +78,12 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         this.listener = listener;
     }
 
-    void requestModel(File rubyModelFile, File senModelFile,
+    void requestModel(File maidModelFile, File senModelFile,
                       List<String> startupExpressions, SenVtsAppearance appearance,
                       SenVtsProfile frozenProfile, SenRenderOptions options,
                       CompositeOutfit outfit) {
         if (released) return;
-        pendingRequest = new ModelRequest(rubyModelFile, senModelFile, startupExpressions,
+        pendingRequest = new ModelRequest(maidModelFile, senModelFile, startupExpressions,
                 appearance, frozenProfile, options, outfit);
     }
 
@@ -124,14 +123,14 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("calibration_cycle", new org.json.JSONArray(
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
-            root.put("attachment_mode", TAIL_ATTACHMENT_ENABLED
-                    ? "tail_two_point_ahoge_root_point_ear_parameter_driven"
-                    : "head_accessory_drive_only");
+            root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
+                    ? "fixed_triangle_carriers_all_three_groups"
+                    : "shared_parameter_drive_only");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "ruby_face_to_ahoge_root_translation")
-                    .put("ear_fins", "shared_parameter_drive_native_rig")
-                    .put("tail", "independent_body_frame_direct")
+                    .put("ahoge", "maid_head_triangle_to_sen_head_triangle")
+                    .put("ear_fins", "maid_head_triangle_to_sen_head_triangle_native_pair")
+                    .put("tail", "maid_body_triangle_to_sen_body_triangle")
                     .put("combined_group", false));
             root.put("head_test_motions", new org.json.JSONArray(Arrays.asList(
                     "head_x_sweep", "head_y_sweep", "head_z_sweep", "head_sweep")));
@@ -143,6 +142,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("pivot_y", stagePivotY));
             root.put("ear_right_mode", "sen_native_parameter_discovery");
             root.put("calibration", overlayCalibration.toJsonObject());
+            root.put("maid_carrier_anchors", model == null
+                    ? JSONObject.NULL : model.buildCarrierInventory());
             root.put("sen_runtime_inventory", overlayModel == null
                     ? JSONObject.NULL : overlayModel.buildCompositeInventory());
             listener.onCompositeReport(root.toString(2));
@@ -156,7 +157,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.10-ahoge-root-bind-head-tests";
+            return "0.1.11-triangle-carrier-bind";
         }
     }
 
@@ -248,7 +249,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     void selectOutfit(CompositeOutfit outfit) {
-        compositeOutfit = outfit == null ? CompositeOutfit.RUBY_ORIGINAL : outfit;
+        compositeOutfit = outfit == null
+                ? CompositeOutfit.MAID_WITH_SEN_ACCESSORIES : outfit;
     }
 
     @Override
@@ -322,18 +324,18 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 overlayModel.update(delta);
             }
 
-            prepareProjection(model, rubyProjection, 1.0f, 0.0f, 0.0f);
-            projection.setMatrix(rubyProjection);
+            prepareProjection(model, maidProjection, 1.0f, 0.0f, 0.0f);
+            projection.setMatrix(maidProjection);
             updateInteractionBounds();
 
             if (showSen) {
                 drawOverlayGroup(CompositeOverlayGroup.TAIL);
             }
-            model.drawMainLow(rubyProjection);
+            model.drawMainLow(maidProjection);
             if (showSen) {
                 drawEarFins();
             }
-            model.drawMainHigh(rubyProjection);
+            model.drawMainHigh(maidProjection);
             if (showSen) drawOverlayGroup(CompositeOverlayGroup.AHOGE);
         } catch (Throwable error) {
             listener.onError(error);
@@ -347,40 +349,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        if (TAIL_ATTACHMENT_ENABLED && group == CompositeOverlayGroup.TAIL) {
-            applyAttachmentCorrection(group, senGroupProjection);
-        } else if (group == CompositeOverlayGroup.AHOGE) {
-            applyAhogeRootCorrection(senGroupProjection);
+        if (TRIANGLE_CARRIER_ATTACHMENT_ENABLED) {
+            applyCarrierCorrection(group, senGroupProjection);
         }
         overlayModel.drawSenGroup(senGroupProjection, group);
-    }
-
-    /**
-     * The ear rig already follows Ruby correctly through shared head parameters, but Sen's ahoge
-     * root has the opposite authored horizontal response. Bind only that root to Ruby's stable face
-     * centre with a clip-space translation. The whole six-mesh ahoge pass receives the same delta,
-     * so its tip bend and local physics are preserved and the ear projection is never touched.
-     */
-    private void applyAhogeRootCorrection(CubismMatrix44 accessoryProjection) {
-        if (model == null || overlayModel == null) return;
-        float[] mainNow = pointToClip(model, rubyProjection, model.currentHeadOriginPoint());
-        float[] mainNeutral = pointToClip(model, rubyProjection, model.neutralHeadOriginPoint());
-        float[] ahogeNow = pointToClip(overlayModel, accessoryProjection,
-                overlayModel.currentAhogeRootPoint());
-        float[] ahogeNeutral = pointToClip(overlayModel, accessoryProjection,
-                overlayModel.neutralAhogeRootPoint());
-        if (mainNow == null || mainNeutral == null || ahogeNow == null || ahogeNeutral == null) {
-            return;
-        }
-        float targetX = ahogeNeutral[0] + mainNow[0] - mainNeutral[0];
-        float targetY = ahogeNeutral[1] + mainNow[1] - mainNeutral[1];
-        float[] translation = {
-                1f, 0f, 0f, 0f,
-                0f, 1f, 0f, 0f,
-                0f, 0f, 1f, 0f,
-                targetX - ahogeNow[0], targetY - ahogeNow[1], 0f, 1f
-        };
-        overlayModel.applyClipTransform(accessoryProjection, translation);
     }
 
     private void drawEarFins() {
@@ -390,10 +362,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        // The complete Sen ear rig is one authored object. Draw it once so ParamL_angle,
-        // ParamR_angle and ParamR_angle2 keep their original independent left/right keyforms.
-        // Only the pair rotation survives from the old tuning UI; manual spacing and mirrored
-        // per-side rotation belonged to the removed reconstruction path.
+        // Draw the complete native pair once. Carrier correction acts on the shared head motion;
+        // ParamL_angle/ParamR_angle/ParamR_angle2 remain local and keep their authored twitch.
+        if (TRIANGLE_CARRIER_ATTACHMENT_ENABLED) {
+            applyCarrierCorrection(group, senGroupProjection);
+        }
         OverlayCalibration.Transform ear = calibration.get(group);
         float[] modelCenter = overlayModel.currentCompositeGroupCenter(group);
         float[] center = pointToClip(overlayModel, senGroupProjection, modelCenter);
@@ -403,39 +376,43 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         overlayModel.drawSenGroup(senGroupProjection, group);
     }
 
-    private void applyAttachmentCorrection(CompositeOverlayGroup group,
-                                           CubismMatrix44 accessoryProjection) {
+    private void applyCarrierCorrection(CompositeOverlayGroup group,
+                                        CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
-        float[] mainNow = poseToClip(model, rubyProjection,
-                model.currentAttachmentPose(group));
-        float[] mainNeutral = poseToClip(model, rubyProjection,
-                model.neutralAttachmentPose(group));
-        float[] accessoryNow = poseToClip(overlayModel, accessoryProjection,
-                overlayModel.currentAttachmentPose(group));
-        float[] accessoryNeutral = poseToClip(overlayModel, accessoryProjection,
-                overlayModel.neutralAttachmentPose(group));
+        float[] mainNow = triangleToClip(model, maidProjection,
+                model.currentCarrierTriangle(group));
+        float[] mainNeutral = triangleToClip(model, maidProjection,
+                model.neutralCarrierTriangle(group));
+        float[] accessoryNow = triangleToClip(overlayModel, accessoryProjection,
+                overlayModel.currentCarrierTriangle(group));
+        float[] accessoryNeutral = triangleToClip(overlayModel, accessoryProjection,
+                overlayModel.neutralCarrierTriangle(group));
         if (mainNow == null || mainNeutral == null
                 || accessoryNow == null || accessoryNeutral == null) return;
 
-        // Only the confirmed tail path reaches this method. Obtain the maid's neutral -> current
-        // body motion, apply it to the donor's calibrated neutral body frame, then replace Sen's
-        // incompatible rigid body frame while leaving the tail mesh's local swing intact.
-        Similarity2D maidMotion = Similarity2D.between(mainNeutral, mainNow, .35f, 2.5f);
-        float[] targetAccessoryPose = maidMotion.transformPose(accessoryNeutral);
-        Similarity2D correction = Similarity2D.between(
-                accessoryNow, targetAccessoryPose, .35f, 2.5f);
+        // Transfer only the maid carrier's neutral-to-current rigid motion. Then remove Sen's own
+        // incompatible carrier response. Accessory mesh deformation remains local because every
+        // drawable in the group receives one identical final clip-space correction.
+        Similarity2D maidMotion = Similarity2D.betweenTriangle(
+                mainNeutral, mainNow, .50f, 1.80f);
+        float[] targetAccessoryTriangle = maidMotion.transformTriangle(accessoryNeutral);
+        Similarity2D correction = Similarity2D.betweenTriangle(
+                accessoryNow, targetAccessoryTriangle, .50f, 1.80f);
         overlayModel.applyClipTransform(accessoryProjection, correction.toMatrix());
     }
 
-    private float[] poseToClip(SenLive2DModel target, CubismMatrix44 targetProjection,
-                               float[] pose) {
-        if (pose == null || pose.length < 4) return null;
-        float[] origin = pointToClip(target, targetProjection,
-                new float[]{pose[0], pose[1]});
-        float[] direction = pointToClip(target, targetProjection,
-                new float[]{pose[2], pose[3]});
-        if (origin == null || direction == null) return null;
-        return new float[]{origin[0], origin[1], direction[0], direction[1]};
+    private float[] triangleToClip(SenLive2DModel target,
+                                   CubismMatrix44 targetProjection, float[] triangle) {
+        if (triangle == null || triangle.length < 6) return null;
+        float[] result = new float[6];
+        for (int i = 0; i < 3; i++) {
+            float[] point = pointToClip(target, targetProjection,
+                    new float[]{triangle[i * 2], triangle[i * 2 + 1]});
+            if (point == null) return null;
+            result[i * 2] = point[0];
+            result[i * 2 + 1] = point[1];
+        }
+        return result;
     }
 
     private float[] pointToClip(SenLive2DModel target, CubismMatrix44 projection,
@@ -479,31 +456,47 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             this.ty = ty;
         }
 
-        static Similarity2D between(float[] source, float[] destination,
-                                    float minimumScale, float maximumScale) {
-            float sourceDx = source[2] - source[0];
-            float sourceDy = source[3] - source[1];
-            float destinationDx = destination[2] - destination[0];
-            float destinationDy = destination[3] - destination[1];
-            float sourceLength = (float) Math.hypot(sourceDx, sourceDy);
-            float destinationLength = (float) Math.hypot(destinationDx, destinationDy);
-            float scale = sourceLength < 1e-5f || destinationLength < 1e-5f
-                    ? 1f : destinationLength / sourceLength;
-            scale = Math.max(minimumScale, Math.min(maximumScale, scale));
-            float sourceAngle = (float) Math.atan2(sourceDy, sourceDx);
-            float destinationAngle = (float) Math.atan2(destinationDy, destinationDx);
-            float angle = destinationAngle - sourceAngle;
-            float a = scale * (float) Math.cos(angle);
-            float b = scale * (float) Math.sin(angle);
-            float tx = destination[0] - a * source[0] + b * source[1];
-            float ty = destination[1] - b * source[0] - a * source[1];
+        static Similarity2D betweenTriangle(float[] source, float[] destination,
+                                            float minimumScale, float maximumScale) {
+            float sourceCenterX = (source[0] + source[2] + source[4]) / 3f;
+            float sourceCenterY = (source[1] + source[3] + source[5]) / 3f;
+            float destinationCenterX = (destination[0] + destination[2]
+                    + destination[4]) / 3f;
+            float destinationCenterY = (destination[1] + destination[3]
+                    + destination[5]) / 3f;
+            float numeratorA = 0f;
+            float numeratorB = 0f;
+            float denominator = 0f;
+            for (int i = 0; i < 3; i++) {
+                float sx = source[i * 2] - sourceCenterX;
+                float sy = source[i * 2 + 1] - sourceCenterY;
+                float dx = destination[i * 2] - destinationCenterX;
+                float dy = destination[i * 2 + 1] - destinationCenterY;
+                numeratorA += sx * dx + sy * dy;
+                numeratorB += sx * dy - sy * dx;
+                denominator += sx * sx + sy * sy;
+            }
+            float a = denominator < 1e-8f ? 1f : numeratorA / denominator;
+            float b = denominator < 1e-8f ? 0f : numeratorB / denominator;
+            float scale = (float) Math.hypot(a, b);
+            if (!Float.isFinite(scale) || scale < 1e-6f) {
+                a = 1f;
+                b = 0f;
+            } else {
+                float clamped = Math.max(minimumScale, Math.min(maximumScale, scale));
+                a *= clamped / scale;
+                b *= clamped / scale;
+            }
+            float tx = destinationCenterX - a * sourceCenterX + b * sourceCenterY;
+            float ty = destinationCenterY - b * sourceCenterX - a * sourceCenterY;
             return new Similarity2D(a, b, tx, ty);
         }
 
-        float[] transformPose(float[] pose) {
-            float[] result = new float[4];
-            transformPoint(pose[0], pose[1], result, 0);
-            transformPoint(pose[2], pose[3], result, 2);
+        float[] transformTriangle(float[] triangle) {
+            float[] result = new float[6];
+            for (int i = 0; i < 3; i++) {
+                transformPoint(triangle[i * 2], triangle[i * 2 + 1], result, i * 2);
+            }
             return result;
         }
 
@@ -614,7 +607,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             releaseCurrentModel();
             lastFrameNanos = 0L;
             listener.onStatus("原生渲染：准备加载菜菜女仆主模型…");
-            SenLive2DModel next = new SenLive2DModel(CompositeModelRole.RUBY_PRIMARY);
+            SenLive2DModel next = new SenLive2DModel(CompositeModelRole.MAID_PRIMARY);
             model = next;
             next.setMotionDiagnosticListener(new SenLive2DModel.MotionDiagnosticListener() {
                 @Override public void onStep(String label, int index, int total) {
@@ -629,7 +622,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             SenVtsAppearance maidAppearance = SenVtsAppearance.fromEncoded(Arrays.asList(
                     new String[]{"ArtMesh122", "9E9EB2FF|000000FF"},
                     new String[]{"ArtMesh149", "9E9EB2FF|000000FF"}));
-            next.load(request.rubyModelFile, surfaceWidth, surfaceHeight, textures,
+            next.load(request.maidModelFile, surfaceWidth, surfaceHeight, textures,
                     listener, request.startupExpressions, maidAppearance,
                     null, request.options, SenOutfitPresets.MAID,
                     evMotionPack);
@@ -640,7 +633,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             next.setCompositeTestMotion(compositeTestMotion);
             next.setStaticMode(staticMode);
             listener.onStatus("原生渲染：准备加载 Sen 三配件动力层…");
-            SenLive2DModel overlay = new SenLive2DModel(CompositeModelRole.SEN_OVERLAY);
+            SenLive2DModel overlay = new SenLive2DModel(
+                    CompositeModelRole.SEN_ACCESSORY_DONOR);
             overlayModel = overlay;
             overlay.load(request.senModelFile, surfaceWidth, surfaceHeight, textures,
                     listener, new ArrayList<>(), null,
@@ -656,11 +650,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private String readyDetail() {
-        String ruby = model == null ? "" : model.getAppearanceDetail();
+        String maid = model == null ? "" : model.getAppearanceDetail();
         String sen = overlayModel == null ? "" : overlayModel.getAppearanceDetail();
         return "菜菜女仆×Sen三配件 Cubism 5 已就绪 · GL_LINEAR · GL_MAX_TEXTURE_SIZE="
                 + maxTextureSize
-                + (ruby.isEmpty() ? "" : "\n主模型：" + ruby)
+                + (maid.isEmpty() ? "" : "\n主模型：" + maid)
                 + (sen.isEmpty() ? "" : "\n配件动力层：" + sen);
     }
 
@@ -678,7 +672,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private static final class ModelRequest {
-        final File rubyModelFile;
+        final File maidModelFile;
         final File senModelFile;
         final List<String> startupExpressions;
         final SenVtsAppearance appearance;
@@ -686,17 +680,18 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         final SenRenderOptions options;
         final CompositeOutfit outfit;
 
-        ModelRequest(File rubyModelFile, File senModelFile,
+        ModelRequest(File maidModelFile, File senModelFile,
                      List<String> startupExpressions, SenVtsAppearance appearance,
                      SenVtsProfile frozenProfile, SenRenderOptions options,
                      CompositeOutfit outfit) {
-            this.rubyModelFile = rubyModelFile;
+            this.maidModelFile = maidModelFile;
             this.senModelFile = senModelFile;
             this.startupExpressions = new ArrayList<>(startupExpressions);
             this.appearance = appearance;
             this.frozenProfile = frozenProfile;
             this.options = options;
-            this.outfit = outfit == null ? CompositeOutfit.RUBY_ORIGINAL : outfit;
+            this.outfit = outfit == null
+                    ? CompositeOutfit.MAID_WITH_SEN_ACCESSORIES : outfit;
         }
     }
 }

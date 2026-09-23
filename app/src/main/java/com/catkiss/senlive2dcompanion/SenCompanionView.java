@@ -152,16 +152,16 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
                         evBodyFollowStrength), outfit));
     }
 
-    /** Loads Ruby as the primary animated model and Sen as a filtered accessory overlay. */
-    public void loadModels(File rubyModelFile, File senModelFile,
+    /** Loads the maid as the only primary model and Sen as a filtered three-accessory donor. */
+    public void loadModels(File maidModelFile, File senModelFile,
                            boolean autoIdle, String motionModeId,
                            float evBodyFollowStrength, String outfitId) {
         if (released) {
             listener.onError(new IllegalStateException("SenCompanionView 已释放，不能再次加载"));
             return;
         }
-        if (rubyModelFile == null || !rubyModelFile.isFile()) {
-            listener.onError(new IOException("Ruby model3 文件不存在"));
+        if (maidModelFile == null || !maidModelFile.isFile()) {
+            listener.onError(new IOException("菜菜女仆 model3 文件不存在"));
             return;
         }
         if (senModelFile == null || !senModelFile.isFile()) {
@@ -177,7 +177,7 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         }
         CompositeOutfit outfit = CompositeOutfit.fromId(outfitId);
         queueRenderer(() -> renderer.requestModel(
-                rubyModelFile, senModelFile, Collections.emptyList(),
+                maidModelFile, senModelFile, Collections.emptyList(),
                 SenOutfitPresets.MAID.appearance, profile,
                 new SenRenderOptions(autoIdle, SenMotionMode.fromId(motionModeId),
                         evBodyFollowStrength), outfit));

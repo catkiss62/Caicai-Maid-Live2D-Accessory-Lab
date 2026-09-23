@@ -54,17 +54,14 @@ final class SenLive2DModel extends CubismUserModel {
     private static final String[] MAIN_TWIN_TAIL_PART_IDS = {
             "Part48", "Part49", "Part56"
     };
-    // The head accessories deliberately do not use a two-point frame: the models' former second
-    // points were authored ornaments rather than rigid head landmarks. Part25 is used only as a
-    // stable one-point face origin for the independent ahoge-root translation below.
-    private static final String[] MAIN_HEAD_ORIGIN_PART_IDS = {"Part25"};
-    // The confirmed tail attachment still uses a two-point body frame. The first point is the
-    // attachment origin and the second supplies body rotation and scale without cancelling the
-    // tail mesh's own swing.
-    private static final String[] MAIN_TAIL_ORIGIN_PART_IDS = {"Part29"};
-    private static final String[] MAIN_TAIL_DIRECTION_PART_IDS = {"Part26"};
-    private static final String[] ACCESSORY_TAIL_ORIGIN_PART_IDS = {"Part93"};
-    private static final String[] ACCESSORY_TAIL_DIRECTION_PART_IDS = {"Part83"};
+    // Stable carrier meshes used for cross-model attachment. They are deliberately taken from
+    // face/body geometry, never from authored ornaments: a fixed triangle keeps vertex identity
+    // across every frame and therefore supplies translation, rotation and scale during large
+    // motions without depending on a jumping drawable bounding box.
+    private static final String[] MAID_HEAD_CARRIER_PART_IDS = {"Part25"};
+    private static final String[] SEN_HEAD_CARRIER_PART_IDS = {"Part39"};
+    private static final String[] MAID_BODY_CARRIER_PART_IDS = {"Part29"};
+    private static final String[] SEN_BODY_CARRIER_PART_IDS = {"Part93"};
     private static final String[] ACCESSORY_TAIL_PART_IDS = {"Part239"};
     // Part113 = 兔耳. These six meshes are the confirmed visible seed, not a left-ear list.
     // The compiled moc3 may keep the other side outside Part113 while reusing the same atlas
@@ -178,20 +175,19 @@ final class SenLive2DModel extends CubismUserModel {
     private final Map<String, Set<String>> rabbitEarDiscoveryHits = new LinkedHashMap<>();
     private String rabbitEarDiscoveryMode = "unresolved";
     private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
-    private final EnumMap<CompositeOverlayGroup, float[]> neutralAttachmentPoses =
-            new EnumMap<>(CompositeOverlayGroup.class);
-    private float[] neutralHeadOrigin;
+    private MeshAnchorFrame headCarrierFrame;
+    private MeshAnchorFrame bodyCarrierFrame;
     private boolean staticMode;
     private CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private float compositeTestMotionElapsed;
 
     SenLive2DModel() {
-        this(CompositeModelRole.RUBY_PRIMARY);
+        this(CompositeModelRole.MAID_PRIMARY);
     }
 
     SenLive2DModel(CompositeModelRole compositeRole) {
         this.compositeRole = compositeRole == null
-                ? CompositeModelRole.RUBY_PRIMARY : compositeRole;
+                ? CompositeModelRole.MAID_PRIMARY : compositeRole;
     }
 
     void load(File modelFile, int width, int height, NativeTextureManager textures,
@@ -222,7 +218,7 @@ final class SenLive2DModel extends CubismUserModel {
         // Reclaim it before decoding 26 textures one by one.
         System.gc();
 
-        hasVtsBaseProfile = compositeRole == CompositeModelRole.SEN_OVERLAY
+        hasVtsBaseProfile = compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR
                 && frozenProfile != null;
         outfitPreset = requestedOutfit == null ? SenOutfitPresets.MAID : requestedOutfit;
         renderOptions = requestedOptions == null ? renderOptions : requestedOptions;
@@ -251,23 +247,23 @@ final class SenLive2DModel extends CubismUserModel {
             applyOutfitParameters(outfitPreset, listener);
         }
         resolveArmPhysicsParameters();
-        if (compositeRole == CompositeModelRole.SEN_OVERLAY) {
+        if (compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR) {
             resolveRabbitEarPhysicsParameters();
         }
         prePhysicsValues = new float[model.getParameterCount()];
         normalPhysicsValues = new float[model.getParameterCount()];
         model.saveParameters();
         applyVtsArtMeshColors(appearance, listener);
-        if (compositeRole == CompositeModelRole.SEN_OVERLAY) {
+        if (compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR) {
             resolveOutfitShapeLock(outfitPreset, listener);
         }
         updateScheduler.sortUpdatableList();
         updateModelWithOutfitShapeLock();
         captureReferenceDrawableBounds();
-        if (compositeRole == CompositeModelRole.SEN_OVERLAY) {
+        if (compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR) {
             restoreAhogeAnchors(SenRenderOptions.AHOGE_ANCHOR_JSON);
             applyRuntimeGeometry();
-            appendAppearanceDetail("合成覆盖层：Ruby驱动→Sen物理→服装/配件分层");
+            appendAppearanceDetail("Sen 三配件动力层：女仆参数驱动→Sen局部物理→载体锚点校正");
         } else {
             model.saveParameters();
             appendAppearanceDetail("菜菜女仆主体 · 原装服装与动作结构完整保留");
@@ -292,7 +288,7 @@ final class SenLive2DModel extends CubismUserModel {
 
     void update(float deltaSeconds) {
         if (model == null) return;
-        if (compositeRole == CompositeModelRole.SEN_OVERLAY) {
+        if (compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR) {
             updateCompositeOverlay(deltaSeconds);
             return;
         }
@@ -367,8 +363,9 @@ final class SenLive2DModel extends CubismUserModel {
         }
         updateScheduler.onLateUpdate(model, frameDelta);
         applyOutfitParameters(SenOutfitPresets.MAID, null);
-        // Shared body/arm/cloth physics outputs from Ruby are authoritative. Applying them again
-        // after Sen's native physics prevents the two compiled rigs from slowly drifting apart.
+        // Shared body/arm/cloth inputs from the maid are authoritative. Applying them again after
+        // Sen's native physics keeps its local accessory motion while the carrier correction below
+        // replaces the donor model's incompatible whole-head/whole-body movement.
         applyCompositeDriveValues();
         updateModelWithOutfitShapeLock();
         applyRuntimeGeometry();
@@ -392,7 +389,7 @@ final class SenLive2DModel extends CubismUserModel {
     }
 
     private void applyCompositeTestMotion(float deltaSeconds) {
-        if (compositeRole != CompositeModelRole.RUBY_PRIMARY
+        if (compositeRole != CompositeModelRole.MAID_PRIMARY
                 || compositeTestMotion == CompositeTestMotion.LIVE) {
             compositeTestMotionElapsed = 0f;
             return;
@@ -498,7 +495,7 @@ final class SenLive2DModel extends CubismUserModel {
 
     private void resolveCompositeDrawableFilters() {
         int count = model.getDrawableCount();
-        if (compositeRole == CompositeModelRole.RUBY_PRIMARY) {
+        if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
             Set<Integer> twinTails = collectChildDrawables(MAIN_TWIN_TAIL_PART_IDS);
             int[] renderOrders = model.getRenderOrders();
             int cutoff = Integer.MIN_VALUE;
@@ -521,8 +518,10 @@ final class SenLive2DModel extends CubismUserModel {
         }
 
         compositeGroupFilters.clear();
+        Set<Integer> tail = retainVisibleDrawables(
+                collectChildDrawables(ACCESSORY_TAIL_PART_IDS));
         putCompositeFilter(CompositeOverlayGroup.TAIL, count,
-                collectChildDrawables(ACCESSORY_TAIL_PART_IDS), null);
+                tail, null);
         Set<Integer> ahoge = collectExistingDrawables(AHOGE_DRAWABLE_IDS);
         putCompositeFilter(CompositeOverlayGroup.AHOGE, count, ahoge, null);
         Set<Integer> earSeeds = collectExistingDrawables(EAR_FIN_DRAWABLE_IDS);
@@ -538,6 +537,16 @@ final class SenLive2DModel extends CubismUserModel {
         appendAppearanceDetail(detail.toString());
         appendAppearanceDetail("耳鳍：原生参数差分 " + ears.size()
                 + "（种子 " + earSeeds.size() + "）· 单次绘制");
+        appendAppearanceDetail("尾巴：活动网格 " + tail.size() + " · 已排除隐藏变体");
+    }
+
+    private Set<Integer> retainVisibleDrawables(Set<Integer> candidates) {
+        Set<Integer> result = new LinkedHashSet<>();
+        if (candidates == null) return result;
+        for (int drawable : candidates) {
+            if (isDrawableVisible(drawable)) result.add(drawable);
+        }
+        return result.isEmpty() ? candidates : result;
     }
 
     /**
@@ -706,7 +715,17 @@ final class SenLive2DModel extends CubismUserModel {
                     model.getModel().getParameterViews()[index].getValue());
         }
         root.put("maid_parameters", parameters);
+        root.put("carrier_anchors", buildCarrierInventory());
         return root;
+    }
+
+    JSONObject buildCarrierInventory() throws JSONException {
+        return new JSONObject()
+                .put("role", compositeRole.name().toLowerCase(java.util.Locale.ROOT))
+                .put("head", headCarrierFrame == null
+                        ? JSONObject.NULL : headCarrierFrame.toJson())
+                .put("body", bodyCarrierFrame == null
+                        ? JSONObject.NULL : bodyCarrierFrame.toJson());
     }
 
     private boolean isSelectedAccessoryDrawable(int index) {
@@ -718,55 +737,33 @@ final class SenLive2DModel extends CubismUserModel {
 
     private void captureNeutralAttachmentPoints() {
         if (model == null) return;
-        neutralAttachmentPoses.clear();
-        float[] tailPose = currentAttachmentPose(CompositeOverlayGroup.TAIL);
-        if (tailPose != null) {
-            neutralAttachmentPoses.put(CompositeOverlayGroup.TAIL, tailPose.clone());
-        }
-        neutralHeadOrigin = compositeRole == CompositeModelRole.RUBY_PRIMARY
-                ? currentHeadOriginPoint() : null;
-        neutralAhogeRoot = compositeRole == CompositeModelRole.SEN_OVERLAY
+        String[] headParts = compositeRole == CompositeModelRole.MAID_PRIMARY
+                ? MAID_HEAD_CARRIER_PART_IDS : SEN_HEAD_CARRIER_PART_IDS;
+        String[] bodyParts = compositeRole == CompositeModelRole.MAID_PRIMARY
+                ? MAID_BODY_CARRIER_PART_IDS : SEN_BODY_CARRIER_PART_IDS;
+        headCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
+                model, collectChildDrawables(headParts));
+        bodyCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
+                model, collectChildDrawables(bodyParts));
+        neutralAhogeRoot = compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR
                 ? currentAhogeRootPoint() : null;
-        appendAppearanceDetail("尾巴双锚点基准 "
-                + (neutralAttachmentPoses.containsKey(CompositeOverlayGroup.TAIL) ? "1/1" : "0/1")
-                + (neutralHeadOrigin == null ? "" : " · Ruby主脸单点基准")
-                + (neutralAhogeRoot == null ? "" : " · 呆毛根部单点基准"));
+        appendAppearanceDetail("固定三角载体：头 "
+                + (headCarrierFrame == null ? "缺失" : headCarrierFrame.drawableId)
+                + " · 身体 "
+                + (bodyCarrierFrame == null ? "缺失" : bodyCarrierFrame.drawableId)
+                + (neutralAhogeRoot == null ? "" : " · 呆毛根部已保留"));
     }
 
-    float[] currentAttachmentPose(CompositeOverlayGroup group) {
-        if (model == null || group != CompositeOverlayGroup.TAIL) return null;
-        String[] originParts;
-        String[] directionParts;
-        if (compositeRole == CompositeModelRole.RUBY_PRIMARY) {
-            originParts = MAIN_TAIL_ORIGIN_PART_IDS;
-            directionParts = MAIN_TAIL_DIRECTION_PART_IDS;
-        } else {
-            originParts = ACCESSORY_TAIL_ORIGIN_PART_IDS;
-            directionParts = ACCESSORY_TAIL_DIRECTION_PART_IDS;
-        }
-        float[] origin = centerOfVisibleOrAll(collectChildDrawables(originParts));
-        float[] direction = centerOfVisibleOrAll(collectChildDrawables(directionParts));
-        if (origin == null || direction == null) return null;
-        float dx = direction[0] - origin[0];
-        float dy = direction[1] - origin[1];
-        if (!Float.isFinite(dx) || !Float.isFinite(dy)
-                || Math.hypot(dx, dy) < 1e-5) return null;
-        return new float[]{origin[0], origin[1], direction[0], direction[1]};
+    float[] currentCarrierTriangle(CompositeOverlayGroup group) {
+        MeshAnchorFrame frame = group == CompositeOverlayGroup.TAIL
+                ? bodyCarrierFrame : headCarrierFrame;
+        return frame == null ? null : frame.currentTriangle(model);
     }
 
-    float[] neutralAttachmentPose(CompositeOverlayGroup group) {
-        float[] value = neutralAttachmentPoses.get(group);
-        return value == null ? null : value.clone();
-    }
-
-    float[] currentHeadOriginPoint() {
-        if (model == null || compositeRole != CompositeModelRole.RUBY_PRIMARY) return null;
-        float[] value = centerOfVisibleOrAll(collectChildDrawables(MAIN_HEAD_ORIGIN_PART_IDS));
-        return value == null ? null : value.clone();
-    }
-
-    float[] neutralHeadOriginPoint() {
-        return neutralHeadOrigin == null ? null : neutralHeadOrigin.clone();
+    float[] neutralCarrierTriangle(CompositeOverlayGroup group) {
+        MeshAnchorFrame frame = group == CompositeOverlayGroup.TAIL
+                ? bodyCarrierFrame : headCarrierFrame;
+        return frame == null ? null : frame.neutralTriangle();
     }
 
     float[] currentAhogeRootPoint() {
@@ -1893,6 +1890,114 @@ final class SenLive2DModel extends CubismUserModel {
         return Math.min(64, Math.max(2, (groups + 31) / 32));
     }
 
+    /** A fixed drawable triangle used as a deformation carrier across model frames. */
+    private static final class MeshAnchorFrame {
+        final int drawableIndex;
+        final String drawableId;
+        final int vertex1;
+        final int vertex2;
+        final int vertex3;
+        final float[] neutral;
+
+        MeshAnchorFrame(int drawableIndex, String drawableId,
+                        int vertex1, int vertex2, int vertex3, float[] neutral) {
+            this.drawableIndex = drawableIndex;
+            this.drawableId = drawableId;
+            this.vertex1 = vertex1;
+            this.vertex2 = vertex2;
+            this.vertex3 = vertex3;
+            this.neutral = neutral;
+        }
+
+        float[] currentTriangle(
+                com.live2d.sdk.cubism.framework.model.CubismModel target) {
+            if (target == null || drawableIndex < 0
+                    || drawableIndex >= target.getDrawableCount()) return null;
+            float[] vertices = target.getDrawableVertices(drawableIndex);
+            if (!validVertex(vertices, vertex1) || !validVertex(vertices, vertex2)
+                    || !validVertex(vertices, vertex3)) return null;
+            return new float[]{
+                    vertices[vertex1 * 2], vertices[vertex1 * 2 + 1],
+                    vertices[vertex2 * 2], vertices[vertex2 * 2 + 1],
+                    vertices[vertex3 * 2], vertices[vertex3 * 2 + 1]
+            };
+        }
+
+        float[] neutralTriangle() {
+            return neutral.clone();
+        }
+
+        JSONObject toJson() throws JSONException {
+            return new JSONObject()
+                    .put("drawable_id", drawableId)
+                    .put("drawable_index", drawableIndex)
+                    .put("triangle_vertex_ids", new JSONArray(
+                            Arrays.asList(vertex1, vertex2, vertex3)))
+                    .put("neutral_triangle", new JSONArray(Arrays.asList(
+                            neutral[0], neutral[1], neutral[2], neutral[3],
+                            neutral[4], neutral[5])));
+        }
+
+        static MeshAnchorFrame fromLargestStableTriangle(
+                com.live2d.sdk.cubism.framework.model.CubismModel target,
+                Set<Integer> candidates) {
+            if (target == null || candidates == null || candidates.isEmpty()) return null;
+            MeshAnchorFrame bestVisible = null;
+            MeshAnchorFrame bestAny = null;
+            float bestVisibleScore = -1f;
+            float bestAnyScore = -1f;
+            for (int drawable : candidates) {
+                if (drawable < 0 || drawable >= target.getDrawableCount()) continue;
+                float[] vertices = target.getDrawableVertices(drawable);
+                short[] indices = target.getDrawableVertexIndices(drawable);
+                if (vertices == null || indices == null) continue;
+                boolean visible = target.getDrawableOpacity(drawable) > .001f
+                        && target.getDrawableDynamicFlagIsVisible(drawable);
+                for (int i = 0; i + 2 < indices.length; i += 3) {
+                    int v1 = indices[i] & 0xffff;
+                    int v2 = indices[i + 1] & 0xffff;
+                    int v3 = indices[i + 2] & 0xffff;
+                    if (!validVertex(vertices, v1) || !validVertex(vertices, v2)
+                            || !validVertex(vertices, v3)) continue;
+                    float x1 = vertices[v1 * 2];
+                    float y1 = vertices[v1 * 2 + 1];
+                    float x2 = vertices[v2 * 2];
+                    float y2 = vertices[v2 * 2 + 1];
+                    float x3 = vertices[v3 * 2];
+                    float y3 = vertices[v3 * 2 + 1];
+                    float area2 = Math.abs((x2 - x1) * (y3 - y1)
+                            - (y2 - y1) * (x3 - x1));
+                    float longestEdge2 = Math.max(
+                            squaredDistance(x1, y1, x2, y2),
+                            Math.max(squaredDistance(x2, y2, x3, y3),
+                                    squaredDistance(x3, y3, x1, y1)));
+                    // A large, well-shaped triangle is less sensitive to local expression noise
+                    // than a thin triangle, while vertex IDs remain fixed for the model lifetime.
+                    float score = area2 * Math.max(area2, .000001f)
+                            / Math.max(longestEdge2, .000001f);
+                    MeshAnchorFrame candidate = new MeshAnchorFrame(drawable,
+                            target.getDrawableId(drawable).getString(), v1, v2, v3,
+                            new float[]{x1, y1, x2, y2, x3, y3});
+                    if (score > bestAnyScore) {
+                        bestAnyScore = score;
+                        bestAny = candidate;
+                    }
+                    if (visible && score > bestVisibleScore) {
+                        bestVisibleScore = score;
+                        bestVisible = candidate;
+                    }
+                }
+            }
+            return bestVisible != null ? bestVisible : bestAny;
+        }
+
+        private static float squaredDistance(float x1, float y1, float x2, float y2) {
+            float dx = x2 - x1;
+            float dy = y2 - y1;
+            return dx * dx + dy * dy;
+        }
+    }
+
     private static final class AhogeAnchorPoint {
         final int drawableIndex;
         final String drawableId;
@@ -2066,7 +2171,7 @@ final class SenLive2DModel extends CubismUserModel {
     private Set<Integer> requiredTextureIndices() {
         Set<Integer> result = new LinkedHashSet<>();
         if (model == null) return result;
-        if (compositeRole == CompositeModelRole.RUBY_PRIMARY) {
+        if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
             for (int i = 0; i < setting.getTextureCount(); i++) result.add(i);
             return result;
         }

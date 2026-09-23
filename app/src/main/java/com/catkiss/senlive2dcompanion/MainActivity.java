@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v2_native_ears";
-    private static final String VERSION = "v0.1.10 · 呆毛根部绑定与大幅测试";
+    private static final String VERSION = "v0.1.11 · 女仆三角载体挂件绑定";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
             CompositeOverlayGroup.AHOGE,
@@ -458,7 +458,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         companionView.loadModels(main, accessory, !staticMode,
                 SenMotionMode.EV_FAITHFUL.id,
                 SenRenderOptions.DEFAULT_EV_BODY_FOLLOW_STRENGTH,
-                CompositeOutfit.SEN_MAID.id);
+                CompositeOutfit.MAID_WITH_SEN_ACCESSORIES.id);
     }
 
     private void updateSummary() {
@@ -489,7 +489,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.10.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.11.json");
         });
     }
 

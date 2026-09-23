@@ -3,7 +3,28 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
-## v0.1.10
+## v0.1.11
+
+- Resets the runtime architecture to the correct source models: the original high-fidelity maid
+  `.moc3` is the only primary model; Sen is only the donor for the six-mesh ahoge, the native
+  `Part113` paired ear-fin rig, and the active `Part239` tail meshes. Ruby is not loaded, referenced,
+  or used as an attachment baseline anywhere in the current code.
+- Replaces the failed cross-model bounding-box/one-point corrections with fixed drawable-triangle
+  carriers. The maid face and Sen face provide the head carrier for two independent ahoge/ear-fin
+  passes; the maid skirt and Sen lower-body mesh provide the tail carrier.
+- Transfers the maid carrier's neutral-to-current similarity transform, then removes the donor
+  carrier's incompatible movement. Sen's local ahoge bend, native paired-ear twitch, and tail swing
+  remain intact because every group receives one uniform final clip-space correction.
+- Keeps the confirmed neutral calibration, including tail scale `1.00` after the two requested
+  enlargement steps. The diagnostic report now records the exact drawable and three fixed vertex
+  IDs selected for every carrier.
+- Prunes dormant hidden `Part239` tail variants from the draw filter, so the private package only
+  needs the recoloured Sen texture slots 06, 16, and 19.
+
+Versions v0.1.10 and earlier are retained below only as failed-test history. Their Ruby-oriented
+attachment assumptions are superseded and must not be reused.
+
+## v0.1.10 (superseded test history)
 
 - Leaves the now-confirmed ear-fin path unchanged: the complete native Sen ear rig continues to
   follow Ruby through shared compatible head parameters, with no rigid frame or App-side mirror.
