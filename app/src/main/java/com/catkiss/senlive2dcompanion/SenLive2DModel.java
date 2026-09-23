@@ -71,23 +71,8 @@ final class SenLive2DModel extends CubismUserModel {
             "ArtMesh631", "ArtMesh1095", "ArtMesh1021",
             "ArtMesh146", "ArtMesh629", "ArtMesh1019"
     };
-    private static final String[] COMPOSITE_DRIVE_IDS = {
-            "ParamAngleX", "ParamAngleY", "ParamAngleZ",
-            "ParamAngleX2", "ParamAngleY2", "ParamAngleZ2",
-            "ParamBodyPositionx", "ParamBodyPositiony",
-            "ParamBodyPositionX2", "ParamBodyPositionY2",
-            "ParamBodyAngleX", "ParamBodyAngleY", "ParamBodyAngleZ",
-            "ParamBodyAngleX2", "ParamBodyAngleY2", "ParamBodyAngleZ2",
-            "ParamBodyZdown", "ParamBodyZLowerPhysic", "ParamBodyStep",
-            "ParamBodyShoulder", "ParamBreath",
-            "Boobax1", "Boobax2", "Boobay1", "BoobaY2",
-            "larmrotate", "larmrotate2", "larmrotate3", "larmrotate4", "larmrotate5",
-            "rarmrotate", "rarmrotate2", "rarmrotate3", "rarmrotate4", "rarmrotate5",
-            "Cloth1", "Cloth2", "Cloth3", "Cloth4", "Cloth5", "Cloth6",
-            "Cloth7", "Cloth8", "Cloth9", "Cloth10", "Cloth11", "Cloth12", "Cloth13"
-    };
     private static final String[] COMPOSITE_TEST_RESET_IDS = {
-            "ParamAngleX", "ParamAngleY", "ParamAngleZ",
+            "ParamAngleX", "ParamAngleX3", "ParamAngleY", "ParamAngleZ",
             "ParamAngleX2", "ParamAngleY2", "ParamAngleZ2",
             "ParamBodyPositionx", "ParamBodyPositiony",
             "ParamBodyPositionX2", "ParamBodyPositionY2",
@@ -120,7 +105,6 @@ final class SenLive2DModel extends CubismUserModel {
     private final Set<String> activeExpressionNames = new LinkedHashSet<>();
     private final Map<String, CubismMotion> nativeMotions = new HashMap<>();
     private final CompositeModelRole compositeRole;
-    private final Map<String, Float> compositeDriveValues = new LinkedHashMap<>();
     private final CubismExpressionMotionManager transientExpressionManager =
             new CubismExpressionMotionManager();
     private volatile float lipSyncValue;
@@ -349,8 +333,11 @@ final class SenLive2DModel extends CubismUserModel {
 
     private void updateCompositeOverlay(float deltaSeconds) {
         float frameDelta = staticMode ? 0.0f : Math.max(0.0f, Math.min(0.05f, deltaSeconds));
+        // The maid and Sen do not share a compatible rigid head/body parameter space. Always
+        // restore the donor's own neutral baseline and evaluate only accessory-local dynamics.
+        // Root translation/rotation/scale is transferred one-way from the maid's actual meshes
+        // by SenRenderer after both models have updated.
         model.loadParameters();
-        applyCompositeDriveValues();
         if (!staticMode) {
             performance.updateAccessoryEarOnly(frameDelta);
             pendingEarPhysicsDrive = performance.getEarPhysicsDrive();
@@ -363,10 +350,6 @@ final class SenLive2DModel extends CubismUserModel {
         }
         updateScheduler.onLateUpdate(model, frameDelta);
         applyOutfitParameters(SenOutfitPresets.MAID, null);
-        // Shared body/arm/cloth inputs from the maid are authoritative. Applying them again after
-        // Sen's native physics keeps its local accessory motion while the carrier correction below
-        // replaces the donor model's incompatible whole-head/whole-body movement.
-        applyCompositeDriveValues();
         updateModelWithOutfitShapeLock();
         applyRuntimeGeometry();
     }
@@ -411,18 +394,16 @@ final class SenLive2DModel extends CubismUserModel {
         }
         float wave = (float) Math.sin(localTime * Math.PI * .5);
         if (active == CompositeTestMotion.HEAD_X_SWEEP) {
-            setParameterCentered("ParamAngleX", wave);
-            setParameterCentered("ParamAngleX2", wave);
+            // This maid rig exposes visible horizontal head motion on AngleX3. AngleX is a
+            // capture/auxiliary parameter and barely moves the rendered head.
+            setParameterCentered("ParamAngleX3", wave);
         } else if (active == CompositeTestMotion.HEAD_Y_SWEEP) {
-            setParameterCentered("ParamAngleY", wave);
             setParameterCentered("ParamAngleY2", wave);
         } else if (active == CompositeTestMotion.HEAD_Z_SWEEP) {
             setParameterCentered("ParamAngleZ", wave);
             setParameterCentered("ParamAngleZ2", wave);
         } else if (active == CompositeTestMotion.HEAD_SWEEP) {
-            setParameterCentered("ParamAngleX", wave);
-            setParameterCentered("ParamAngleX2", wave);
-            setParameterCentered("ParamAngleY", wave * .45f);
+            setParameterCentered("ParamAngleX3", wave);
             setParameterCentered("ParamAngleY2", wave * .45f);
             setParameterCentered("ParamAngleZ", -wave * .35f);
             setParameterCentered("ParamAngleZ2", -wave * .35f);
@@ -476,21 +457,6 @@ final class SenLive2DModel extends CubismUserModel {
         renderer.setDrawableVisibilityFilter(filter);
         renderer.setMvpMatrix(drawMvpMatrix);
         renderer.drawModel();
-    }
-
-    void copyCompositeDriveFrom(SenLive2DModel primary) {
-        compositeDriveValues.clear();
-        if (primary == null || primary.model == null) return;
-        for (String id : COMPOSITE_DRIVE_IDS) {
-            float value = primary.getParameterValue(id);
-            if (Float.isFinite(value) && hasParameter(id)) compositeDriveValues.put(id, value);
-        }
-    }
-
-    private void applyCompositeDriveValues() {
-        for (Map.Entry<String, Float> entry : compositeDriveValues.entrySet()) {
-            setParameter(entry.getKey(), entry.getValue());
-        }
     }
 
     private void resolveCompositeDrawableFilters() {

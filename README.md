@@ -3,7 +3,22 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
-## v0.1.11
+## v0.1.12
+
+- Removes the maid-to-Sen rigid parameter copy completely. Identically named Live2D parameters in
+  the two compiled rigs are not assumed to mean the same motion anymore.
+- Uses the maid's rendered face/skirt carrier triangles as a one-way source: their observed
+  neutral-to-current translation, rotation, and scale are applied directly to each calibrated
+  accessory bind pose. Sen head/body motion can no longer reverse, lag, or amplify the roots.
+- Keeps only accessory-local Sen behaviour, including the native paired-ear double twitch. Ahoge,
+  ear fins, and tail still use separate filters and draw passes.
+- Maps the temporary horizontal binding test to the maid's visible `ParamAngleX3` and the vertical
+  test to `ParamAngleY2`. This is intentionally only enough to validate attachment; the complete
+  maid action map will be labelled later from on-device observation.
+- The diagnostic report now states `sen_rigid_parameter_drive=false` and identifies the one-way
+  mesh-carrier path, so a report can distinguish this build from the failed v0.1.11 strategy.
+
+## v0.1.11 (superseded test history)
 
 - Resets the runtime architecture to the correct source models: the original high-fidelity maid
   `.moc3` is the only primary model; Sen is only the donor for the six-mesh ahoge, the native
@@ -21,8 +36,8 @@ from Sen: ahoge, paired fish ear fins, and fish tail.
 - Prunes dormant hidden `Part239` tail variants from the draw filter, so the private package only
   needs the recoloured Sen texture slots 06, 16, and 19.
 
-Versions v0.1.10 and earlier are retained below only as failed-test history. Their Ruby-oriented
-attachment assumptions are superseded and must not be reused.
+Versions v0.1.11 and earlier are retained below only as failed-test history. Their donor-rig or
+Ruby-oriented attachment assumptions are superseded and must not be reused.
 
 ## v0.1.10 (superseded test history)
 

@@ -32,9 +32,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private static final String TAG = "SenNativeCubism";
-    // The maid and Sen have different compiled deformation hierarchies. Shared parameters keep
-    // local physics alive, while fixed carrier triangles replace the incompatible whole-head and
-    // whole-body motion for all three accessory passes.
+    // The maid and Sen have different compiled deformation hierarchies and incompatible meanings
+    // for several identically named parameters. Rigid motion therefore travels only one way: from
+    // the maid's actual deformed carrier meshes to each neutral accessory projection. Sen retains
+    // only accessory-local mesh dynamics such as its authored paired-ear twitch.
     private static final boolean TRIANGLE_CARRIER_ATTACHMENT_ENABLED = true;
 
     private final Context context;
@@ -124,13 +125,15 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? "fixed_triangle_carriers_all_three_groups"
-                    : "shared_parameter_drive_only");
+                    ? "maid_mesh_one_way_triangle_carriers"
+                    : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
+            root.put("sen_rigid_parameter_drive", false);
+            root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "maid_head_triangle_to_sen_head_triangle")
-                    .put("ear_fins", "maid_head_triangle_to_sen_head_triangle_native_pair")
-                    .put("tail", "maid_body_triangle_to_sen_body_triangle")
+                    .put("ahoge", "maid_head_neutral_to_current_on_accessory_bind_pose")
+                    .put("ear_fins", "maid_head_neutral_to_current_native_pair")
+                    .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
             root.put("head_test_motions", new org.json.JSONArray(Arrays.asList(
                     "head_x_sweep", "head_y_sweep", "head_z_sweep", "head_sweep")));
@@ -157,7 +160,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.11-triangle-carrier-bind";
+            return "0.1.12-one-way-mesh-bind";
         }
     }
 
@@ -320,7 +323,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             model.update(delta);
             boolean showSen = overlayModel != null;
             if (showSen) {
-                overlayModel.copyCompositeDriveFrom(model);
                 overlayModel.update(delta);
             }
 
@@ -350,7 +352,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
         if (TRIANGLE_CARRIER_ATTACHMENT_ENABLED) {
-            applyCarrierCorrection(group, senGroupProjection);
+            applyMaidCarrierMotion(group, senGroupProjection);
         }
         overlayModel.drawSenGroup(senGroupProjection, group);
     }
@@ -365,7 +367,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         // Draw the complete native pair once. Carrier correction acts on the shared head motion;
         // ParamL_angle/ParamR_angle/ParamR_angle2 remain local and keep their authored twitch.
         if (TRIANGLE_CARRIER_ATTACHMENT_ENABLED) {
-            applyCarrierCorrection(group, senGroupProjection);
+            applyMaidCarrierMotion(group, senGroupProjection);
         }
         OverlayCalibration.Transform ear = calibration.get(group);
         float[] modelCenter = overlayModel.currentCompositeGroupCenter(group);
@@ -376,29 +378,22 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         overlayModel.drawSenGroup(senGroupProjection, group);
     }
 
-    private void applyCarrierCorrection(CompositeOverlayGroup group,
+    private void applyMaidCarrierMotion(CompositeOverlayGroup group,
                                         CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
         float[] mainNow = triangleToClip(model, maidProjection,
                 model.currentCarrierTriangle(group));
         float[] mainNeutral = triangleToClip(model, maidProjection,
                 model.neutralCarrierTriangle(group));
-        float[] accessoryNow = triangleToClip(overlayModel, accessoryProjection,
-                overlayModel.currentCarrierTriangle(group));
-        float[] accessoryNeutral = triangleToClip(overlayModel, accessoryProjection,
-                overlayModel.neutralCarrierTriangle(group));
-        if (mainNow == null || mainNeutral == null
-                || accessoryNow == null || accessoryNeutral == null) return;
+        if (mainNow == null || mainNeutral == null) return;
 
-        // Transfer only the maid carrier's neutral-to-current rigid motion. Then remove Sen's own
-        // incompatible carrier response. Accessory mesh deformation remains local because every
-        // drawable in the group receives one identical final clip-space correction.
+        // Apply the maid carrier's observed neutral-to-current motion directly to the already
+        // calibrated accessory bind pose. We deliberately never inspect or cancel a Sen head/body
+        // carrier here: doing so lets the donor's incompatible rig re-enter the root transform and
+        // was the source of the previous reversed, delayed and over-amplified movement.
         Similarity2D maidMotion = Similarity2D.betweenTriangle(
                 mainNeutral, mainNow, .50f, 1.80f);
-        float[] targetAccessoryTriangle = maidMotion.transformTriangle(accessoryNeutral);
-        Similarity2D correction = Similarity2D.betweenTriangle(
-                accessoryNow, targetAccessoryTriangle, .50f, 1.80f);
-        overlayModel.applyClipTransform(accessoryProjection, correction.toMatrix());
+        overlayModel.applyClipTransform(accessoryProjection, maidMotion.toMatrix());
     }
 
     private float[] triangleToClip(SenLive2DModel target,
@@ -490,19 +485,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             float tx = destinationCenterX - a * sourceCenterX + b * sourceCenterY;
             float ty = destinationCenterY - b * sourceCenterX - a * sourceCenterY;
             return new Similarity2D(a, b, tx, ty);
-        }
-
-        float[] transformTriangle(float[] triangle) {
-            float[] result = new float[6];
-            for (int i = 0; i < 3; i++) {
-                transformPoint(triangle[i * 2], triangle[i * 2 + 1], result, i * 2);
-            }
-            return result;
-        }
-
-        private void transformPoint(float x, float y, float[] destination, int offset) {
-            destination[offset] = a * x - b * y + tx;
-            destination[offset + 1] = b * x + a * y + ty;
         }
 
         float[] toMatrix() {
