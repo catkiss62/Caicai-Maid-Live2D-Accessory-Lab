@@ -54,8 +54,18 @@ final class SenLive2DModel extends CubismUserModel {
     private static final String[] MAIN_TWIN_TAIL_PART_IDS = {
             "Part48", "Part49", "Part56"
     };
-    private static final String[] MAIN_HEAD_ANCHOR_PART_IDS = {"Part25", "Part53"};
-    private static final String[] MAIN_TAIL_ANCHOR_PART_IDS = {"Part29"};
+    // Two-point frames used by the screen-space attachment solver.  The first point is the
+    // attachment origin and the second point supplies head/body rotation and scale.  Use rigid
+    // character parts rather than an accessory's own vertices so ahoge, ear and tail physics are
+    // not cancelled by the correction pass.
+    private static final String[] MAIN_HEAD_ORIGIN_PART_IDS = {"Part25"};
+    private static final String[] MAIN_HEAD_DIRECTION_PART_IDS = {"Part9"};
+    private static final String[] MAIN_TAIL_ORIGIN_PART_IDS = {"Part29"};
+    private static final String[] MAIN_TAIL_DIRECTION_PART_IDS = {"Part26"};
+    private static final String[] ACCESSORY_HEAD_ORIGIN_PART_IDS = {"Part39", "Part51"};
+    private static final String[] ACCESSORY_HEAD_DIRECTION_PART_IDS = {"Part70"};
+    private static final String[] ACCESSORY_TAIL_ORIGIN_PART_IDS = {"Part93"};
+    private static final String[] ACCESSORY_TAIL_DIRECTION_PART_IDS = {"Part83"};
     private static final String[] ACCESSORY_TAIL_PART_IDS = {"Part239"};
     // Part113 = 兔耳. Include its three live meshes and three authored alternate/mask meshes,
     // without walking into any neighbouring head or ahoge hierarchy.
@@ -167,10 +177,8 @@ final class SenLive2DModel extends CubismUserModel {
     private boolean[] earRightFilter;
     private boolean mirrorLeftEarForRight;
     private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
-    private final EnumMap<CompositeOverlayGroup, float[]> neutralGroupCenters =
+    private final EnumMap<CompositeOverlayGroup, float[]> neutralAttachmentPoses =
             new EnumMap<>(CompositeOverlayGroup.class);
-    private float[] neutralHeadAnchor;
-    private float[] neutralTailAnchor;
     private boolean staticMode;
     private CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private float compositeTestMotionElapsed;
@@ -647,36 +655,42 @@ final class SenLive2DModel extends CubismUserModel {
 
     private void captureNeutralAttachmentPoints() {
         if (model == null) return;
-        if (compositeRole == CompositeModelRole.RUBY_PRIMARY) {
-            neutralHeadAnchor = centerOf(collectChildDrawables(MAIN_HEAD_ANCHOR_PART_IDS));
-            neutralTailAnchor = centerOf(collectChildDrawables(MAIN_TAIL_ANCHOR_PART_IDS));
-            return;
-        }
-        neutralGroupCenters.clear();
+        neutralAttachmentPoses.clear();
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
             if (group == CompositeOverlayGroup.GLOBAL) continue;
-            neutralGroupCenters.put(group, centerOfFilter(compositeGroupFilters.get(group)));
+            float[] pose = currentAttachmentPose(group);
+            if (pose != null) neutralAttachmentPoses.put(group, pose.clone());
         }
+        appendAppearanceDetail("双锚点挂件基准 " + neutralAttachmentPoses.size() + "/3");
     }
 
-    float[] currentMainAnchor(CompositeOverlayGroup group) {
-        if (model == null || compositeRole != CompositeModelRole.RUBY_PRIMARY) return null;
-        return centerOf(collectChildDrawables(group == CompositeOverlayGroup.TAIL
-                ? MAIN_TAIL_ANCHOR_PART_IDS : MAIN_HEAD_ANCHOR_PART_IDS));
+    float[] currentAttachmentPose(CompositeOverlayGroup group) {
+        if (model == null || group == null || group == CompositeOverlayGroup.GLOBAL) return null;
+        boolean tail = group == CompositeOverlayGroup.TAIL;
+        String[] originParts;
+        String[] directionParts;
+        if (compositeRole == CompositeModelRole.RUBY_PRIMARY) {
+            originParts = tail ? MAIN_TAIL_ORIGIN_PART_IDS : MAIN_HEAD_ORIGIN_PART_IDS;
+            directionParts = tail ? MAIN_TAIL_DIRECTION_PART_IDS
+                    : MAIN_HEAD_DIRECTION_PART_IDS;
+        } else {
+            originParts = tail ? ACCESSORY_TAIL_ORIGIN_PART_IDS
+                    : ACCESSORY_HEAD_ORIGIN_PART_IDS;
+            directionParts = tail ? ACCESSORY_TAIL_DIRECTION_PART_IDS
+                    : ACCESSORY_HEAD_DIRECTION_PART_IDS;
+        }
+        float[] origin = centerOfVisibleOrAll(collectChildDrawables(originParts));
+        float[] direction = centerOfVisibleOrAll(collectChildDrawables(directionParts));
+        if (origin == null || direction == null) return null;
+        float dx = direction[0] - origin[0];
+        float dy = direction[1] - origin[1];
+        if (!Float.isFinite(dx) || !Float.isFinite(dy)
+                || Math.hypot(dx, dy) < 1e-5) return null;
+        return new float[]{origin[0], origin[1], direction[0], direction[1]};
     }
 
-    float[] neutralMainAnchor(CompositeOverlayGroup group) {
-        float[] value = group == CompositeOverlayGroup.TAIL
-                ? neutralTailAnchor : neutralHeadAnchor;
-        return value == null ? null : value.clone();
-    }
-
-    float[] currentGroupCenter(CompositeOverlayGroup group) {
-        return centerOfFilter(compositeGroupFilters.get(group));
-    }
-
-    float[] neutralGroupCenter(CompositeOverlayGroup group) {
-        float[] value = neutralGroupCenters.get(group);
+    float[] neutralAttachmentPose(CompositeOverlayGroup group) {
+        float[] value = neutralAttachmentPoses.get(group);
         return value == null ? null : value.clone();
     }
 
@@ -693,6 +707,19 @@ final class SenLive2DModel extends CubismUserModel {
         Set<Integer> indices = new LinkedHashSet<>();
         for (int i = 0; i < filter.length; i++) if (filter[i]) indices.add(i);
         return centerOf(indices);
+    }
+
+    private float[] centerOfVisibleOrAll(Set<Integer> indices) {
+        if (indices == null || indices.isEmpty()) return null;
+        Set<Integer> visible = new LinkedHashSet<>();
+        for (int index : indices) {
+            if (index >= 0 && index < model.getDrawableCount()
+                    && model.getDrawableOpacity(index) > .001f) {
+                visible.add(index);
+            }
+        }
+        float[] result = centerOf(visible);
+        return result == null ? centerOf(indices) : result;
     }
 
     private float[] centerOf(Set<Integer> indices) {

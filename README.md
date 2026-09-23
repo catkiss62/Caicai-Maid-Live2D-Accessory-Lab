@@ -3,6 +3,16 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.4
+
+- Attaches ahoge and ear fins to a two-point head frame, and the tail to a separate two-point
+  waist/body frame.
+- Replaces the donor model's incompatible rigid movement with the maid model's translation,
+  rotation and scale delta while preserving accessory-local mesh physics.
+- Uses the confirmed v0.1.2 calibration as the neutral bind pose; stage zoom and translation are
+  still shared by the maid and all accessories.
+- Keeps the v0.1.3 manual and low-frequency autonomous ear-fin double twitch.
+
 ## v0.1.0
 
 - Imports one private model ZIP described by `accessory-lab.json`.

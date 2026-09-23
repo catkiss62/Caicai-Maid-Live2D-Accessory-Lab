@@ -32,9 +32,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private static final String TAG = "SenNativeCubism";
-    // v0.1.1 intentionally validates fixed calibrated overlays first. Re-enable only after the
-    // repaired ear-fin pair has been checked against the maid model's full motion range.
-    private static final boolean DYNAMIC_ATTACHMENT_ENABLED = false;
+    // The v0.1.3 device test confirmed the isolated ear-fin dynamics.  Attach all three groups
+    // with two-point head/body frames while leaving each accessory's internal mesh physics intact.
+    private static final boolean DYNAMIC_ATTACHMENT_ENABLED = true;
 
     private final Context context;
     private final Listener listener;
@@ -120,7 +120,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     Arrays.asList("ahoge", "ear_fins", "tail")));
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", DYNAMIC_ATTACHMENT_ENABLED
-                    ? "dynamic_anchor" : "fixed_calibrated");
+                    ? "dynamic_two_point_anchor" : "fixed_calibrated");
             root.put("stage_transform", new JSONObject()
                     .put("scale", stageScale)
                     .put("x", stageTranslateX)
@@ -410,20 +410,39 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     private void applyAttachmentCorrection(CompositeOverlayGroup group,
                                            CubismMatrix44 accessoryProjection) {
-        if (model == null || overlayModel == null || staticMode) return;
-        float[] mainNow = pointToClip(model, rubyProjection, model.currentMainAnchor(group));
-        float[] mainNeutral = pointToClip(model, rubyProjection, model.neutralMainAnchor(group));
-        float[] accessoryNow = pointToClip(overlayModel, accessoryProjection,
-                overlayModel.currentGroupCenter(group));
-        float[] accessoryNeutral = pointToClip(overlayModel, accessoryProjection,
-                overlayModel.neutralGroupCenter(group));
+        if (model == null || overlayModel == null) return;
+        float[] mainNow = poseToClip(model, rubyProjection,
+                model.currentAttachmentPose(group));
+        float[] mainNeutral = poseToClip(model, rubyProjection,
+                model.neutralAttachmentPose(group));
+        float[] accessoryNow = poseToClip(overlayModel, accessoryProjection,
+                overlayModel.currentAttachmentPose(group));
+        float[] accessoryNeutral = poseToClip(overlayModel, accessoryProjection,
+                overlayModel.neutralAttachmentPose(group));
         if (mainNow == null || mainNeutral == null
                 || accessoryNow == null || accessoryNeutral == null) return;
-        float correctionX = (mainNow[0] - mainNeutral[0])
-                - (accessoryNow[0] - accessoryNeutral[0]);
-        float correctionY = (mainNow[1] - mainNeutral[1])
-                - (accessoryNow[1] - accessoryNeutral[1]);
-        accessoryProjection.translateRelative(correctionX, correctionY);
+
+        // First obtain the maid's neutral -> current head/body motion.  Apply that motion to the
+        // donor's calibrated neutral frame, then replace the donor's own incompatible rigid frame
+        // with the target frame.  Because the source frame comes from rigid face/torso parts (not
+        // the accessory mesh), ear twitch, ahoge bend and tail swing remain visible.
+        Similarity2D maidMotion = Similarity2D.between(mainNeutral, mainNow, .35f, 2.5f);
+        float[] targetAccessoryPose = maidMotion.transformPose(accessoryNeutral);
+        Similarity2D correction = Similarity2D.between(
+                accessoryNow, targetAccessoryPose, .35f, 2.5f);
+        CubismMatrix44.multiply(correction.toMatrix(), accessoryProjection.getArray(),
+                accessoryProjection.getArray());
+    }
+
+    private float[] poseToClip(SenLive2DModel target, CubismMatrix44 targetProjection,
+                               float[] pose) {
+        if (pose == null || pose.length < 4) return null;
+        float[] origin = pointToClip(target, targetProjection,
+                new float[]{pose[0], pose[1]});
+        float[] direction = pointToClip(target, targetProjection,
+                new float[]{pose[2], pose[3]});
+        if (origin == null || direction == null) return null;
+        return new float[]{origin[0], origin[1], direction[0], direction[1]};
     }
 
     private float[] pointToClip(SenLive2DModel target, CubismMatrix44 projection,
@@ -452,6 +471,62 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 0f, 1f
         };
         CubismMatrix44.multiply(rotate, matrix.getArray(), matrix.getArray());
+    }
+
+    private static final class Similarity2D {
+        final float a;
+        final float b;
+        final float tx;
+        final float ty;
+
+        private Similarity2D(float a, float b, float tx, float ty) {
+            this.a = a;
+            this.b = b;
+            this.tx = tx;
+            this.ty = ty;
+        }
+
+        static Similarity2D between(float[] source, float[] destination,
+                                    float minimumScale, float maximumScale) {
+            float sourceDx = source[2] - source[0];
+            float sourceDy = source[3] - source[1];
+            float destinationDx = destination[2] - destination[0];
+            float destinationDy = destination[3] - destination[1];
+            float sourceLength = (float) Math.hypot(sourceDx, sourceDy);
+            float destinationLength = (float) Math.hypot(destinationDx, destinationDy);
+            float scale = sourceLength < 1e-5f || destinationLength < 1e-5f
+                    ? 1f : destinationLength / sourceLength;
+            scale = Math.max(minimumScale, Math.min(maximumScale, scale));
+            float sourceAngle = (float) Math.atan2(sourceDy, sourceDx);
+            float destinationAngle = (float) Math.atan2(destinationDy, destinationDx);
+            float angle = destinationAngle - sourceAngle;
+            float a = scale * (float) Math.cos(angle);
+            float b = scale * (float) Math.sin(angle);
+            float tx = destination[0] - a * source[0] + b * source[1];
+            float ty = destination[1] - b * source[0] - a * source[1];
+            return new Similarity2D(a, b, tx, ty);
+        }
+
+        float[] transformPose(float[] pose) {
+            float[] result = new float[4];
+            transformPoint(pose[0], pose[1], result, 0);
+            transformPoint(pose[2], pose[3], result, 2);
+            return result;
+        }
+
+        private void transformPoint(float x, float y, float[] destination, int offset) {
+            destination[offset] = a * x - b * y + tx;
+            destination[offset + 1] = b * x + a * y + ty;
+        }
+
+        float[] toMatrix() {
+            return new float[]{
+                    a, b, 0f, 0f,
+                    -b, a, 0f, 0f,
+                    0f, 0f, 1f, 0f,
+                    tx, ty, 0f, 1f
+            };
+        }
     }
 
     private void prepareProjection(SenLive2DModel target, CubismMatrix44 destination,

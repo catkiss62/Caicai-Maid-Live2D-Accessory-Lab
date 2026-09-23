@@ -40,7 +40,7 @@ import java.util.zip.ZipInputStream;
 /** 菜菜女仆主模型 + Sen 呆毛、耳鳍、尾巴配件实验室。 */
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
-    private static final String VERSION = "v0.1.3 · 耳鳍独立动力恢复测试";
+    private static final String VERSION = "v0.1.4 · 三配件双锚点挂件测试";
     private static final long MAX_EXTRACTED_BYTES = 1_500_000_000L;
     private static final int MAX_ZIP_ENTRIES = 8_000;
 
@@ -469,7 +469,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.3.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.4.json");
         });
     }
 
