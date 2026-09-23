@@ -231,6 +231,7 @@ final class SenLive2DModel extends CubismUserModel {
     private MeshAnchorFrame headCarrierFrame;
     private MeshAnchorFrame bodyCarrierFrame;
     private MeshAnchorFrame ahogeHairCarrierFrame;
+    private AhogeAnchorPoint selectedMaidHairPoint;
     private MeshAnchorFrame ahogeHeadPinFrame;
     private MeshAnchorFrame screenLeftEarHeadPinFrame;
     private MeshAnchorFrame screenRightEarHeadPinFrame;
@@ -1208,6 +1209,79 @@ final class SenLive2DModel extends CubismUserModel {
         float[] value = ahogeRootAnchor.currentPoint(model);
         return value == null ? null : value.clone();
     }
+
+    /** The maid attachment is a point on a known top-hair drawable, not a guessed triangle center. */
+    float[] currentMaidHairPoint() {
+        return model == null || selectedMaidHairPoint == null ? null
+                : selectedMaidHairPoint.currentPoint(model);
+    }
+
+    JSONObject selectedMaidHairPointJson() throws JSONException {
+        if (selectedMaidHairPoint == null) return null;
+        return selectedMaidHairPoint.toJson();
+    }
+
+    void restoreMaidHairPoint(String json) {
+        selectedMaidHairPoint = null;
+        if (model == null || compositeRole != CompositeModelRole.MAID_PRIMARY
+                || json == null || json.isEmpty()) return;
+        try {
+            AhogeAnchorPoint point = AhogeAnchorPoint.fromJson(new JSONObject(json), model);
+            if (point != null && collectChildDrawables(MAID_TOP_HAIR_PART_IDS)
+                    .contains(point.drawableIndex)) selectedMaidHairPoint = point;
+        } catch (JSONException ignored) { }
+    }
+
+    /** Pick on the *drawn* top-hair triangles; store their IDs and weights, never screen pixels. */
+    JSONObject pickMaidHairPoint(CubismMatrix44 projection, float clipX, float clipY,
+                                float maximumClipDistance) throws JSONException {
+        if (model == null || compositeRole != CompositeModelRole.MAID_PRIMARY) return null;
+        copyMvpMatrix(projection, interactionAnchorMvp);
+        float[] matrix = interactionAnchorMvp.getArray();
+        AhogeAnchorPoint best = null;
+        float bestDistance = maximumClipDistance * maximumClipDistance;
+        for (int index : collectChildDrawables(MAID_TOP_HAIR_PART_IDS)) {
+            if (model.getDrawableOpacity(index) < .001f
+                    || !model.getDrawableDynamicFlagIsVisible(index)) continue;
+            float[] vertices = model.getDrawableVertices(index);
+            short[] triangles = model.getDrawableVertexIndices(index);
+            if (vertices == null || triangles == null) continue;
+            for (int i = 0; i + 2 < triangles.length; i += 3) {
+                int a = triangles[i] & 0xffff, b = triangles[i + 1] & 0xffff;
+                int c = triangles[i + 2] & 0xffff;
+                if (!validVertex(vertices, a) || !validVertex(vertices, b)
+                        || !validVertex(vertices, c)) continue;
+                float ax = matrix[0] * vertices[a * 2] + matrix[4] * vertices[a * 2 + 1] + matrix[12];
+                float ay = matrix[1] * vertices[a * 2] + matrix[5] * vertices[a * 2 + 1] + matrix[13];
+                float bx = matrix[0] * vertices[b * 2] + matrix[4] * vertices[b * 2 + 1] + matrix[12];
+                float by = matrix[1] * vertices[b * 2] + matrix[5] * vertices[b * 2 + 1] + matrix[13];
+                float cx = matrix[0] * vertices[c * 2] + matrix[4] * vertices[c * 2 + 1] + matrix[12];
+                float cy = matrix[1] * vertices[c * 2] + matrix[5] * vertices[c * 2 + 1] + matrix[13];
+                float det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+                if (Math.abs(det) < 1e-9f) continue;
+                float w1 = ((by - cy) * (clipX - cx) + (cx - bx) * (clipY - cy)) / det;
+                float w2 = ((cy - ay) * (clipX - cx) + (ax - cx) * (clipY - cy)) / det;
+                float w3 = 1f - w1 - w2;
+                // Clamp to the triangle so a near-edge tap can still land on visible hair.
+                w1 = Math.max(0f, w1); w2 = Math.max(0f, w2); w3 = Math.max(0f, w3);
+                float sum = w1 + w2 + w3;
+                w1 /= sum; w2 /= sum; w3 /= sum;
+                float px = w1 * ax + w2 * bx + w3 * cx;
+                float py = w1 * ay + w2 * by + w3 * cy;
+                float distance = (px - clipX) * (px - clipX) + (py - clipY) * (py - clipY);
+                if (distance <= bestDistance) {
+                    bestDistance = distance;
+                    best = new AhogeAnchorPoint(index, model.getDrawableId(index).getString(),
+                            a, b, c, w1, w2, w3);
+                }
+            }
+        }
+        if (best == null) return null;
+        selectedMaidHairPoint = best;
+        return best.toJson();
+    }
+
+    private final CubismMatrix44 interactionAnchorMvp = CubismMatrix44.create();
 
     float[] neutralAhogeRootPoint() {
         return neutralAhogeRoot == null ? null : neutralAhogeRoot.clone();
@@ -2261,8 +2335,6 @@ final class SenLive2DModel extends CubismUserModel {
         }
         if (maximumDistance < 1e-5f) return;
 
-        float rootZone = maximumDistance * .10f;
-        float flexibleLength = Math.max(1e-5f, maximumDistance - rootZone);
         for (int index : candidates) {
             if (!isDrawableVisible(index)) continue;
             float[] vertices = model.getDrawableVertices(index);
@@ -2270,9 +2342,9 @@ final class SenLive2DModel extends CubismUserModel {
                 float dx = vertices[i] - root[0];
                 float dy = vertices[i + 1] - root[1];
                 float distance = (float) Math.hypot(dx, dy);
-                float t = Math.max(0f, Math.min(1f,
-                        (distance - rootZone) / flexibleLength));
-                // Smoothstep prevents a visible hinge where the locked root zone ends.
+                // Only the point itself is fixed. Motion grows continuously from the root,
+                // without a frozen lower segment or a seam between the six native meshes.
+                float t = Math.max(0f, Math.min(1f, distance / maximumDistance));
                 float weight = t * t * (3f - 2f * t);
                 if (weight <= 0f) continue;
                 float angle = angleRadians * weight;
@@ -2830,6 +2902,12 @@ final class SenLive2DModel extends CubismUserModel {
                             + vertices[vertex2 * 2 + 1] * weight2
                             + vertices[vertex3 * 2 + 1] * weight3
             };
+        }
+
+        JSONObject toJson() throws JSONException {
+            return new JSONObject().put("drawableId", drawableId)
+                    .put("triangleVertexIds", new JSONArray(Arrays.asList(vertex1, vertex2, vertex3)))
+                    .put("barycentricWeights", new JSONArray(Arrays.asList(weight1, weight2, weight3)));
         }
 
         static AhogeAnchorPoint fromJson(JSONObject object,

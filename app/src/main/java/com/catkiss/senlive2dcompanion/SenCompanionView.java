@@ -34,6 +34,7 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         void onMotionDiagnosticStep(String label, int index, int total);
         void onMotionDiagnosticComplete(String report);
         void onCompositeReport(String report);
+        void onMaidHairPointPicked(String anchorJson);
     }
 
     public static final String DEFAULT_PROFILE_ASSET = "sen-default-profile-v1.json";
@@ -45,6 +46,7 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         @Override public void onMotionDiagnosticStep(String label, int index, int total) { }
         @Override public void onMotionDiagnosticComplete(String report) { }
         @Override public void onCompositeReport(String report) { }
+        @Override public void onMaidHairPointPicked(String anchorJson) { }
     };
 
     private final SenRenderer renderer;
@@ -84,6 +86,9 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
 
             @Override public void onCompositeReport(String report) {
                 listener.onCompositeReport(report);
+            }
+            @Override public void onMaidHairPointPicked(String anchorJson) {
+                listener.onMaidHairPointPicked(anchorJson);
             }
         });
         setRenderer(renderer);
@@ -252,6 +257,14 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
 
     public void setGeometryConstraintEnabled(boolean enabled) {
         queueRenderer(() -> renderer.setGeometryConstraintEnabled(enabled));
+    }
+
+    public void setMaidHairPoint(String anchorJson) {
+        queueRenderer(() -> renderer.setMaidHairPointJson(anchorJson));
+    }
+
+    public void pickMaidHairPoint(float x, float y) {
+        queueRenderer(() -> renderer.pickMaidHairPoint(x, y));
     }
 
     public void setStaticMode(boolean enabled) {

@@ -30,6 +30,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         void onMotionDiagnosticStep(String label, int index, int total);
         void onMotionDiagnosticComplete(String report);
         void onCompositeReport(String report);
+        void onMaidHairPointPicked(String anchorJson);
     }
 
     private static final String TAG = "SenNativeCubism";
@@ -89,6 +90,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float ahogeLagAngularVelocity;
     private volatile boolean ahogeMotionResetRequested = true;
     private volatile boolean geometryConstraintEnabled = true;
+    private String maidHairPointJson = "";
     private final long[] geometryFrames = new long[2];
     private final float[] maximumEarCorrection = new float[2];
     private float maximumEarSharedShift;
@@ -103,8 +105,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float lastHeadTurn;
     private float lastRootBeforeGap;
     private float lastRootCorrection;
-    private float lastDirectionAfterGap;
-    private float maximumDirectionAfterGap;
     private long earMeasurementFailures;
     private long ahogeHairFallbackFrames;
 
@@ -148,6 +148,35 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         ahogeMotionResetRequested = true;
     }
 
+    void setMaidHairPointJson(String json) {
+        maidHairPointJson = json == null ? "" : json;
+        if (model != null) model.restoreMaidHairPoint(maidHairPointJson);
+        ahogeMotionResetRequested = true;
+    }
+
+    void pickMaidHairPoint(float screenX, float screenY) {
+        if (model == null || overlayModel == null || surfaceWidth < 1 || surfaceHeight < 1) {
+            listener.onStatus("请先导入模型，再选呆毛连接点");
+            return;
+        }
+        try {
+            float x = 2f * screenX / surfaceWidth - 1f;
+            float y = 1f - 2f * screenY / surfaceHeight;
+            // Equal physical pick radius on both axes, even on a tall screen.
+            float radius = 36f * 2f / Math.min(surfaceWidth, surfaceHeight);
+            JSONObject point = model.pickMaidHairPoint(maidProjection, x, y, radius);
+            if (point == null) {
+                listener.onStatus("没有点中顶部头发，请放大人物后点呆毛接入的位置");
+                return;
+            }
+            maidHairPointJson = point.toString();
+            ahogeMotionResetRequested = true;
+            listener.onMaidHairPointPicked(maidHairPointJson);
+        } catch (JSONException error) {
+            listener.onError(error);
+        }
+    }
+
     void setStaticMode(boolean enabled) {
         staticMode = enabled;
         ahogeMotionResetRequested = true;
@@ -182,10 +211,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("ear_face_parallax_clip", lastEarFaceParallax)
                     .put("ear_screen_turn_signed", lastEarScreenTurn)
                     .put("maximum_ear_shared_shift_clip", maximumEarSharedShift)
+                    .put("ear_shared_shift_over_neutral_span", .07)
                     .put("root_to_hair_target_before_clip", lastRootBeforeGap)
                     .put("root_to_hair_target_after_clip", lastRootCorrection)
-                    .put("direction_to_head_axis_after_clip", lastDirectionAfterGap)
-                    .put("maximum_direction_gap_new_clip", maximumDirectionAfterGap)
                     .put("maximum_root_gap_baseline_clip", maximumRootCorrection[0])
                     .put("maximum_root_gap_new_clip", maximumRootCorrection[1])
                     .put("near_root_vertex_correction_model", 0)
@@ -193,7 +221,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("ear_measurement_failures", earMeasurementFailures)
                     .put("ahoge_hair_fallback_frames", ahogeHairFallbackFrames));
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? (geometryConstraintEnabled ? "actual_mesh_ear_span_shared_shift_and_two_point_hair_frame"
+                    ? (geometryConstraintEnabled ? "picked_hair_root_and_head_driven_flex"
                     : "v0.1.16_independent_face_mesh_pins")
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
@@ -201,7 +229,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
                     .put("ahoge", geometryConstraintEnabled
-                            ? "maid_top_hair_two_point_frame_with_native_mesh_motion"
+                            ? "picked_maid_hair_point_and_one_way_head_motion"
                             : "v0.1.16_face_mesh_top_center_pin")
                     .put("ear_fins_screen_left", geometryConstraintEnabled
                             ? "actual_drawable_outer_span_constraint" : "v0.1.16_face_mesh_left_pin")
@@ -214,15 +242,17 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("vertical_local_response", .60)
                     .put("actual_outer_span_over_neutral", 1.01)
                     .put("maximum_head_turn_narrowing", .16)
-                    .put("maximum_shared_shift_over_neutral_span", .018)
+                    .put("maximum_shared_shift_over_neutral_span", .07)
                     .put("enabled", geometryConstraintEnabled));
             root.put("ahoge_root_lock", new JSONObject()
                     .put("root_source", "Sen ArtMesh151 vertex 8 barycentric anchor")
                     .put("direction_source", "Sen ArtMesh151 captured direction barycentric anchor")
-                    .put("moving_target", "maid_top_hair_triangle_with_neutral_bind_offset")
-                    .put("direction_target", "neutral_Sen_direction_rotated_with_maid_head")
+                    .put("moving_target", "manually_picked_point_on_maid_top_hair")
+                    .put("direction_target", "unconstrained_Sen_local_axis")
+                    .put("maid_hair_point", model == null || model.selectedMaidHairPointJson() == null
+                            ? JSONObject.NULL : model.selectedMaidHairPointJson())
                     .put("native_mesh_overwrite", false)
-                    .put("secondary_motion", "smooth_tip_weighted_velocity_spring")
+                    .put("secondary_motion", "maid_head_yaw_and_velocity_driven_smooth_flex")
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
             root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
@@ -256,7 +286,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.19-two-point-ahoge-and-ear-yaw";
+            return "0.1.20-picked-hair-root-and-visible-ear-shift";
         }
     }
 
@@ -572,7 +602,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         }
         lastEarScreenTurn = screenTurn;
         lastEarSharedShift = geometryConstraintEnabled
-                ? -neutralSpan * .018f * screenTurn : 0f;
+                ? -neutralSpan * .07f * screenTurn : 0f;
         if (Math.abs(lastEarSharedShift) > 1e-6f) {
             float[] shift = new Similarity2D(1f, 0f, lastEarSharedShift, 0f).toMatrix();
             overlayModel.applyClipTransform(leftEarProjection, shift);
@@ -747,79 +777,35 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 .withScaleResponse(scaleResponse, minimumScale, maximumScale);
     }
 
-    /** Maps Sen's hand-placed root and upward point onto a moving frame on the maid's hair. */
+    /** Carry the complete Sen mesh with the accepted head motion, then translate its root only. */
     private void applyMaidAhogeRootMotion(CubismMatrix44 accessoryProjection) {
-        float[] hairNow = triangleToClip(model, maidProjection,
-                model.currentCarrierTriangle(CompositeOverlayGroup.AHOGE));
-        float[] hairNeutral = triangleToClip(model, maidProjection,
-                model.neutralCarrierTriangle(CompositeOverlayGroup.AHOGE));
-        Similarity2D grossHeadMotion = currentGrossHeadMotion(.85f, .70f, 1.35f);
-        float[] donorRootNow = pointToClip(overlayModel, accessoryProjection,
+        applyMaidHeadPinMotionLegacy(CompositeOverlayGroup.AHOGE, true,
+                accessoryProjection, .85f, .70f, 1.35f);
+        float[] hairPoint = model.currentMaidHairPoint();
+        float[] targetRoot = pointToClip(model, maidProjection, hairPoint);
+        float[] rootBefore = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.currentAhogeRootPoint());
-        float[] donorDirectionNow = pointToClip(overlayModel, accessoryProjection,
-                overlayModel.currentAhogeDirectionPoint());
-        float[] donorRootNeutral = pointToClip(overlayModel, accessoryProjection,
-                overlayModel.neutralAhogeRootPoint());
-        float[] donorDirectionNeutral = pointToClip(overlayModel, accessoryProjection,
-                overlayModel.neutralAhogeDirectionPoint());
-        if (hairNow == null || hairNeutral == null || grossHeadMotion == null
-                || donorRootNow == null || donorDirectionNow == null
-                || donorRootNeutral == null || donorDirectionNeutral == null) {
+        if (targetRoot == null || rootBefore == null) {
             ahogeHairFallbackFrames++;
-            applyMaidHeadPinMotionLegacy(CompositeOverlayGroup.AHOGE, true,
-                    accessoryProjection, .85f, .70f, 1.35f);
-            return;
+            return; // Before user picks, keep the proven v0.1.16 motion and neutral position.
         }
-
-        // The bind offset remains exactly as calibrated at rest, but its moving origin is the
-        // actual top-hair mesh rather than a proxy point on the face.
-        float bindOffsetX = donorRootNeutral[0] - triangleCenterX(hairNeutral);
-        float bindOffsetY = donorRootNeutral[1] - triangleCenterY(hairNeutral);
-        float transformedOffsetX = grossHeadMotion.a * bindOffsetX
-                - grossHeadMotion.b * bindOffsetY;
-        float transformedOffsetY = grossHeadMotion.b * bindOffsetX
-                + grossHeadMotion.a * bindOffsetY;
-        float targetRootX = triangleCenterX(hairNow) + transformedOffsetX;
-        float targetRootY = triangleCenterY(hairNow) + transformedOffsetY;
-        // The neutral hand-placed upward vector follows the maid head. The same transform moves
-        // all six live Sen meshes without overwriting the proximal vertices' native deformation.
-        float neutralAxisX = donorDirectionNeutral[0] - donorRootNeutral[0];
-        float neutralAxisY = donorDirectionNeutral[1] - donorRootNeutral[1];
-        float targetDirectionX = targetRootX + grossHeadMotion.a * neutralAxisX
-                - grossHeadMotion.b * neutralAxisY;
-        float targetDirectionY = targetRootY + grossHeadMotion.b * neutralAxisX
-                + grossHeadMotion.a * neutralAxisY;
-        Similarity2D twoPointMotion = Similarity2D.betweenTwoPoints(
-                donorRootNow, donorDirectionNow,
-                targetRootX, targetRootY, targetDirectionX, targetDirectionY);
-        if (twoPointMotion == null) {
-            ahogeHairFallbackFrames++;
-            applyMaidHeadPinMotionLegacy(CompositeOverlayGroup.AHOGE, true,
-                    accessoryProjection, .85f, .70f, 1.35f);
-            return;
-        }
+        float targetRootX = targetRoot[0], targetRootY = targetRoot[1];
         lastRootBeforeGap = (float) Math.hypot(
-                targetRootX - donorRootNow[0], targetRootY - donorRootNow[1]);
-        overlayModel.applyClipTransform(accessoryProjection, twoPointMotion.toMatrix());
+                targetRootX - rootBefore[0], targetRootY - rootBefore[1]);
+        overlayModel.applyClipTransform(accessoryProjection,
+                new Similarity2D(1f, 0f, targetRootX - rootBefore[0],
+                        targetRootY - rootBefore[1]).toMatrix());
         float[] rootAfter = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.currentAhogeRootPoint());
-        float[] directionAfter = pointToClip(overlayModel, accessoryProjection,
-                overlayModel.currentAhogeDirectionPoint());
         if (rootAfter != null) {
             lastRootCorrection = (float) Math.hypot(
                     targetRootX - rootAfter[0], targetRootY - rootAfter[1]);
             maximumRootCorrection[1] = Math.max(maximumRootCorrection[1], lastRootCorrection);
         }
-        if (directionAfter != null) {
-            lastDirectionAfterGap = (float) Math.hypot(
-                    targetDirectionX - directionAfter[0],
-                    targetDirectionY - directionAfter[1]);
-            maximumDirectionAfterGap = Math.max(
-                    maximumDirectionAfterGap, lastDirectionAfterGap);
-        }
-
+        // The donor's neutral head has no Hair Z input in composite mode. Drive local flex from
+        // the maid's actual turn; the Sen direction point is never forced to a maid direction.
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
-                grossHeadMotion.angleRadians());
+                model.horizontalHeadTurnSigned());
     }
 
     /** The accepted v0.1.16 head path, kept intact for one-tap on-device comparison. */
@@ -887,9 +873,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         previousAhogeRootY = rootY;
         previousAhogeHeadAngle = headAngle;
 
-        float targetLagX = clamp(-rootVelocityX * .045f, -.035f, .035f);
+        float targetLagX = clamp(-rootVelocityX * .045f - headAngle * .035f,
+                -.065f, .065f);
         float targetLagY = clamp(-rootVelocityY * .040f, -.030f, .030f);
-        float targetLagAngle = clamp(-angularVelocity * .070f, -.14f, .14f);
+        float targetLagAngle = clamp(-angularVelocity * .070f - headAngle * .16f,
+                -.22f, .22f);
         float stiffness = 30f;
         float damping = (float) Math.exp(-9f * dt);
         ahogeLagVelocityX = (ahogeLagVelocityX
@@ -993,25 +981,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             this.b = b;
             this.tx = tx;
             this.ty = ty;
-        }
-
-        static Similarity2D betweenTwoPoints(float[] sourceRoot, float[] sourceDirection,
-                                             float targetRootX, float targetRootY,
-                                             float targetDirectionX, float targetDirectionY) {
-            float sx = sourceDirection[0] - sourceRoot[0];
-            float sy = sourceDirection[1] - sourceRoot[1];
-            float denominator = sx * sx + sy * sy;
-            if (!Float.isFinite(denominator) || denominator < 1e-8f) return null;
-            float dx = targetDirectionX - targetRootX;
-            float dy = targetDirectionY - targetRootY;
-            float a = (sx * dx + sy * dy) / denominator;
-            float b = (sx * dy - sy * dx) / denominator;
-            float scale = (float) Math.hypot(a, b);
-            if (!Float.isFinite(scale) || scale < 1e-6f) return null;
-            float limitedScale = clamp(scale, .70f, 1.35f);
-            return new Similarity2D(a * limitedScale / scale, b * limitedScale / scale,
-                    0f, 0f).mappingPoint(sourceRoot[0], sourceRoot[1],
-                    targetRootX, targetRootY);
         }
 
         static Similarity2D betweenTriangle(float[] source, float[] destination,
@@ -1196,6 +1165,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     listener, request.startupExpressions, maidAppearance,
                     null, request.options, SenOutfitPresets.MAID,
                     evMotionPack);
+            next.restoreMaidHairPoint(maidHairPointJson);
             next.setTouchFollowEnabled(touchFollowEnabled);
             next.setEarTuning(SenRenderOptions.EAR_SPEED_PERCENT,
                     SenRenderOptions.EAR_AMPLITUDE_PERCENT);

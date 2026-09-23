@@ -3,6 +3,20 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.20
+
+- On the phone, tap “点选呆毛接入的头发位置”, then tap the actual hair connection in the neutral pose.
+  The entire ahoge moves to that point immediately. The pick is saved as a triangle and
+  barycentric weights on the maid top-hair mesh, so it follows that same point each frame.
+  A missed hair tap is rejected, and the pick can be repeated. Importing another model clears it.
+- Starts from the v0.1.16 face-following motion, translates the complete six-mesh Sen ahoge so
+  its root sits exactly on the picked hair point, and bends the meshes smoothly away from the
+  root using the maid head turn and bounded velocity. Sen’s direction anchor is kept local and
+  is no longer mapped onto the maid head. Before the first pick, v0.1.16 ahoge motion is shown.
+- Makes the ear pair's same-direction test shift 7% of neutral pair width at full turn (previously
+  1.8%), while retaining the measured outer-span cap and comparison toggle. The full rendered
+  shift is recorded in the exported diagnostic. Visual accuracy still requires a device test.
+
 ## v0.1.19
 
 - Removes v0.1.18's captured near-root mesh overwrite, which froze the lower ahoge and could

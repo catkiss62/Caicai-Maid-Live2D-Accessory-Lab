@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 20
-        versionName '0.1.19-two-point-ahoge-and-ear-yaw'
+        versionCode 21
+        versionName '0.1.20-picked-hair-root-and-visible-ear-shift'
     }
 
     signingConfigs {
