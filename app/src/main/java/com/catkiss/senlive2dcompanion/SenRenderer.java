@@ -32,10 +32,12 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private static final String TAG = "SenNativeCubism";
-    // Each accessory is rendered through its own filter and calibrated projection. The two head
-    // groups may follow the same Ruby head frame, but they receive separate correction matrices;
-    // there is deliberately no combined ahoge + ear-fins drawable group.
-    private static final boolean PER_ACCESSORY_ATTACHMENT_ENABLED = true;
+    // Ruby and Sen do not share one rigid head topology. Their former second head anchors were
+    // actually authored accessories (Ruby's head ornament and Sen's maid headband), so using them
+    // as a two-point frame made the ahoge and ear fins turn opposite to the visible face. Keep the
+    // two head groups on the shared compatible parameter drive and only use the independently
+    // verified two-point correction for the tail's body frame.
+    private static final boolean TAIL_ATTACHMENT_ENABLED = true;
 
     private final Context context;
     private final Listener listener;
@@ -122,12 +124,12 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("calibration_cycle", new org.json.JSONArray(
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
-            root.put("attachment_mode", PER_ACCESSORY_ATTACHMENT_ENABLED
-                    ? "per_accessory_two_point" : "parameter_driven");
+            root.put("attachment_mode", TAIL_ATTACHMENT_ENABLED
+                    ? "tail_two_point_head_parameter_driven" : "parameter_driven");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "independent_head_frame_x_reflected")
-                    .put("ear_fins", "independent_head_frame_x_reflected")
+                    .put("ahoge", "shared_parameter_drive_native_rig")
+                    .put("ear_fins", "shared_parameter_drive_native_rig")
                     .put("tail", "independent_body_frame_direct")
                     .put("combined_group", false));
             root.put("stage_transform", new JSONObject()
@@ -151,7 +153,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.8-head-direction-fix";
+            return "0.1.9-head-native-drive";
         }
     }
 
@@ -342,7 +344,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        if (PER_ACCESSORY_ATTACHMENT_ENABLED) {
+        if (TAIL_ATTACHMENT_ENABLED && group == CompositeOverlayGroup.TAIL) {
             applyAttachmentCorrection(group, senGroupProjection);
         }
         overlayModel.drawSenGroup(senGroupProjection, group);
@@ -355,9 +357,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        if (PER_ACCESSORY_ATTACHMENT_ENABLED) {
-            applyAttachmentCorrection(group, senGroupProjection);
-        }
         // The complete Sen ear rig is one authored object. Draw it once so ParamL_angle,
         // ParamR_angle and ParamR_angle2 keep their original independent left/right keyforms.
         // Only the pair rotation survives from the old tuning UI; manual spacing and mirrored
@@ -385,35 +384,14 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         if (mainNow == null || mainNeutral == null
                 || accessoryNow == null || accessoryNeutral == null) return;
 
-        if (group != CompositeOverlayGroup.TAIL) {
-            mainNow = reflectPoseHorizontalDelta(mainNeutral, mainNow);
-        }
-
-        // This method is called once for one drawable group and one calibrated projection. First
-        // obtain the maid's neutral -> current head/body motion, apply it to that group's donor
-        // neutral frame, then replace the donor's incompatible rigid frame with the target frame.
-        // The source points never come from accessory vertices, so ahoge bend, ear twitch and tail
-        // swing remain intact and no two accessory filters can be merged by the attachment pass.
+        // Only the confirmed tail path reaches this method. Obtain the maid's neutral -> current
+        // body motion, apply it to the donor's calibrated neutral body frame, then replace Sen's
+        // incompatible rigid body frame while leaving the tail mesh's local swing intact.
         Similarity2D maidMotion = Similarity2D.between(mainNeutral, mainNow, .35f, 2.5f);
         float[] targetAccessoryPose = maidMotion.transformPose(accessoryNeutral);
         Similarity2D correction = Similarity2D.between(
                 accessoryNow, targetAccessoryPose, .35f, 2.5f);
         overlayModel.applyClipTransform(accessoryProjection, correction.toMatrix());
-    }
-
-    /**
-     * Ruby's selected rigid head parts move in the opposite screen-X direction from the visible
-     * head turn. Reflect only their per-point horizontal delta around the neutral pose. The body
-     * anchors used by the already verified tail binding deliberately bypass this conversion.
-     */
-    private static float[] reflectPoseHorizontalDelta(float[] neutral, float[] current) {
-        if (neutral == null || current == null || neutral.length < 4 || current.length < 4) {
-            return current;
-        }
-        return new float[]{
-                2f * neutral[0] - current[0], current[1],
-                2f * neutral[2] - current[2], current[3]
-        };
     }
 
     private float[] poseToClip(SenLive2DModel target, CubismMatrix44 targetProjection,

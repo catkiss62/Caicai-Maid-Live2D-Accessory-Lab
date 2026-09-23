@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 9
-        versionName '0.1.8-head-direction-fix'
+        versionCode 10
+        versionName '0.1.9-head-native-drive'
     }
 
     signingConfigs {
