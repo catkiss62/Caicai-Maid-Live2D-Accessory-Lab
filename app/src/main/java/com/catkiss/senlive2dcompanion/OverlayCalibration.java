@@ -7,6 +7,25 @@ import java.util.EnumMap;
 import java.util.Locale;
 
 final class OverlayCalibration {
+    static final class EarFineTune {
+        final float scale;
+        final float x;
+        final float y;
+        final float rotation;
+
+        EarFineTune(float scale, float x, float y, float rotation) {
+            this.scale = clamp(scale, .70f, 1.30f);
+            this.x = clamp(x, -.30f, .30f);
+            this.y = clamp(y, -.30f, .30f);
+            this.rotation = clamp(rotation, -45f, 45f);
+        }
+
+        JSONObject toJson() throws JSONException {
+            return new JSONObject().put("scale", scale).put("x", x).put("y", y)
+                    .put("rotation", rotation);
+        }
+    }
+
     static final class Transform {
         final float scale;
         final float x;
@@ -36,6 +55,8 @@ final class OverlayCalibration {
 
     private final EnumMap<CompositeOverlayGroup, Transform> transforms =
             new EnumMap<>(CompositeOverlayGroup.class);
+    private EarFineTune screenLeftEar = defaultEarFineTune();
+    private EarFineTune screenRightEar = defaultEarFineTune();
 
     private OverlayCalibration() {
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
@@ -62,6 +83,10 @@ final class OverlayCalibration {
                         (float) item.optDouble("spacing", 0.0),
                         (float) item.optDouble("pair_rotation", 0.0)));
             }
+            result.screenLeftEar = earFineTuneFromJson(
+                    root.optJSONObject("ear_fins_screen_left"));
+            result.screenRightEar = earFineTuneFromJson(
+                    root.optJSONObject("ear_fins_screen_right"));
         } catch (JSONException ignored) { }
         return result;
     }
@@ -85,6 +110,29 @@ final class OverlayCalibration {
                         old.rotation + rotationDelta, old.spacing + spacingDelta,
                         old.pairRotation + pairRotationDelta));
         return result;
+    }
+
+    OverlayCalibration withEarSideDelta(boolean screenLeft,
+                                        float scaleDelta, float xDelta,
+                                        float yDelta, float rotationDelta) {
+        OverlayCalibration result = copy();
+        EarFineTune old = getEarFineTune(screenLeft);
+        EarFineTune next = new EarFineTune(old.scale + scaleDelta,
+                old.x + xDelta, old.y + yDelta, old.rotation + rotationDelta);
+        if (screenLeft) result.screenLeftEar = next;
+        else result.screenRightEar = next;
+        return result;
+    }
+
+    OverlayCalibration resetEarSide(boolean screenLeft) {
+        OverlayCalibration result = copy();
+        if (screenLeft) result.screenLeftEar = defaultEarFineTune();
+        else result.screenRightEar = defaultEarFineTune();
+        return result;
+    }
+
+    EarFineTune getEarFineTune(boolean screenLeft) {
+        return screenLeft ? screenLeftEar : screenRightEar;
     }
 
     OverlayCalibration withVisible(CompositeOverlayGroup group, boolean visible) {
@@ -131,6 +179,8 @@ final class OverlayCalibration {
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
             root.put(group.id, get(group).toJson());
         }
+        root.put("ear_fins_screen_left", screenLeftEar.toJson());
+        root.put("ear_fins_screen_right", screenRightEar.toJson());
         return root;
     }
 
@@ -146,8 +196,14 @@ final class OverlayCalibration {
                 value.visible ? "显示" : "隐藏");
         if (group == CompositeOverlayGroup.EAR_FINS) {
             return base + String.format(Locale.ROOT,
-                    "\nSen原生双耳 · 整体旋转 %+.1f°",
-                    value.pairRotation);
+                    "\nSen原生双耳 · 整体旋转 %+.1f°"
+                            + "\n画面左：缩放 %.2f · X %+.2f · Y %+.2f · 旋转 %+.1f°"
+                            + "\n画面右：缩放 %.2f · X %+.2f · Y %+.2f · 旋转 %+.1f°",
+                    value.pairRotation,
+                    screenLeftEar.scale, screenLeftEar.x, screenLeftEar.y,
+                    screenLeftEar.rotation,
+                    screenRightEar.scale, screenRightEar.x, screenRightEar.y,
+                    screenRightEar.rotation);
         }
         return base;
     }
@@ -156,7 +212,23 @@ final class OverlayCalibration {
         OverlayCalibration result = new OverlayCalibration();
         result.transforms.clear();
         result.transforms.putAll(transforms);
+        result.screenLeftEar = screenLeftEar;
+        result.screenRightEar = screenRightEar;
         return result;
+    }
+
+    private static EarFineTune earFineTuneFromJson(JSONObject object) {
+        if (object == null) return defaultEarFineTune();
+        return new EarFineTune((float) object.optDouble("scale", 1.0),
+                (float) object.optDouble("x", 0.0),
+                (float) object.optDouble("y", 0.0),
+                (float) object.optDouble("rotation", 0.0));
+    }
+
+    private static EarFineTune defaultEarFineTune() {
+        // Identity is essential: splitting the native pair must not move the confirmed v0.1.12
+        // neutral placement by even one calibration step.
+        return new EarFineTune(1f, 0f, 0f, 0f);
     }
 
     private static Transform defaultTransform(CompositeOverlayGroup group) {

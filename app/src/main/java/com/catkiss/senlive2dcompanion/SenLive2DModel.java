@@ -51,9 +51,11 @@ final class SenLive2DModel extends CubismUserModel {
             "ArtMesh190", "ArtMesh191", "ArtMesh192"
     };
     private static final String[] TAIL_PART_IDS = {"Part239"};
-    private static final String[] MAIN_TWIN_TAIL_PART_IDS = {
-            "Part48", "Part49", "Part56"
-    };
+    // The side bows are the authored perspective-correct mounting points for the fish fins.
+    // Part names contain editor-side left/right labels, but runtime assignment uses neutral X so
+    // the UI and diagnostics always mean the viewer's screen-left and screen-right.
+    private static final String[] MAID_SIDE_BOW_PART_IDS = {"Part30", "Part31"};
+    private static final String[] MAID_AHOGE_TOP_PART_IDS = {"Part9"};
     // Stable carrier meshes used for cross-model attachment. They are deliberately taken from
     // face/body geometry, never from authored ornaments: a fixed triangle keeps vertex identity
     // across every frame and therefore supplies translation, rotation and scale during large
@@ -154,6 +156,8 @@ final class SenLive2DModel extends CubismUserModel {
     private SenRenderOptions renderOptions = new SenRenderOptions(false);
     private boolean[] mainLowLayerFilter;
     private boolean[] mainHighLayerFilter;
+    private boolean[] earFinScreenLeftFilter;
+    private boolean[] earFinScreenRightFilter;
     private final EnumMap<CompositeOverlayGroup, boolean[]> compositeGroupFilters =
             new EnumMap<>(CompositeOverlayGroup.class);
     private final Map<String, Set<String>> rabbitEarDiscoveryHits = new LinkedHashMap<>();
@@ -161,6 +165,9 @@ final class SenLive2DModel extends CubismUserModel {
     private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
     private MeshAnchorFrame headCarrierFrame;
     private MeshAnchorFrame bodyCarrierFrame;
+    private MeshAnchorFrame ahogeTopCarrierFrame;
+    private MeshAnchorFrame screenLeftBowCarrierFrame;
+    private MeshAnchorFrame screenRightBowCarrierFrame;
     private boolean staticMode;
     private CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private float compositeTestMotionElapsed;
@@ -444,6 +451,11 @@ final class SenLive2DModel extends CubismUserModel {
         drawWithFilter(matrix, compositeGroupFilters.get(group));
     }
 
+    void drawSenEarSide(CubismMatrix44 matrix, boolean screenLeft) {
+        drawWithFilter(matrix, screenLeft
+                ? earFinScreenLeftFilter : earFinScreenRightFilter);
+    }
+
     private void drawWithFilter(CubismMatrix44 matrix, boolean[] filter) {
         if (model == null || getRenderer() == null) return;
         // A frame can draw the same model several times (low layer, high layer and accessories).
@@ -462,22 +474,24 @@ final class SenLive2DModel extends CubismUserModel {
     private void resolveCompositeDrawableFilters() {
         int count = model.getDrawableCount();
         if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
-            Set<Integer> twinTails = collectChildDrawables(MAIN_TWIN_TAIL_PART_IDS);
+            Set<Integer> sideBows = collectChildDrawables(MAID_SIDE_BOW_PART_IDS);
             int[] renderOrders = model.getRenderOrders();
-            int cutoff = Integer.MIN_VALUE;
-            for (int index : twinTails) {
+            int cutoff = Integer.MAX_VALUE;
+            for (int index : sideBows) {
                 if (index >= 0 && index < renderOrders.length) {
-                    cutoff = Math.max(cutoff, renderOrders[index]);
+                    cutoff = Math.min(cutoff, renderOrders[index]);
                 }
             }
-            if (cutoff == Integer.MIN_VALUE) cutoff = medianRenderOrder(renderOrders);
+            if (cutoff == Integer.MAX_VALUE) cutoff = medianRenderOrder(renderOrders);
             mainLowLayerFilter = new boolean[count];
             mainHighLayerFilter = new boolean[count];
             for (int i = 0; i < count; i++) {
-                if (renderOrders[i] <= cutoff) mainLowLayerFilter[i] = true;
+                // Insert both ear passes immediately before the first side-bow drawable. The bows
+                // and every later front-hair/headwear drawable therefore cover the fins naturally.
+                if (renderOrders[i] < cutoff) mainLowLayerFilter[i] = true;
                 else mainHighLayerFilter[i] = true;
             }
-            appendAppearanceDetail("主模型双马尾分层：低层 "
+            appendAppearanceDetail("主模型耳鳍插层：蝴蝶结之前 "
                     + countEnabled(mainLowLayerFilter) + " · 前层 "
                     + countEnabled(mainHighLayerFilter) + " · 阈值 " + cutoff);
             return;
@@ -493,6 +507,7 @@ final class SenLive2DModel extends CubismUserModel {
         Set<Integer> earSeeds = collectExistingDrawables(EAR_FIN_DRAWABLE_IDS);
         Set<Integer> ears = resolveRabbitEarDrawables(earSeeds);
         putCompositeFilter(CompositeOverlayGroup.EAR_FINS, count, ears, null);
+        splitEarFinFilters(ears, count);
 
         StringBuilder detail = new StringBuilder("Sen配件网格");
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
@@ -502,7 +517,9 @@ final class SenLive2DModel extends CubismUserModel {
         }
         appendAppearanceDetail(detail.toString());
         appendAppearanceDetail("耳鳍：原生参数差分 " + ears.size()
-                + "（种子 " + earSeeds.size() + "）· 单次绘制");
+                + "（种子 " + earSeeds.size() + "）· 画面左 "
+                + countEnabled(earFinScreenLeftFilter) + " / 画面右 "
+                + countEnabled(earFinScreenRightFilter) + " · 双侧独立绘制");
         appendAppearanceDetail("尾巴：活动网格 " + tail.size() + " · 已排除隐藏变体");
     }
 
@@ -571,6 +588,47 @@ final class SenLive2DModel extends CubismUserModel {
         }
         if (scanned) rabbitEarDiscoveryMode = "native_parameter_differential";
         return result;
+    }
+
+    private void splitEarFinFilters(Set<Integer> ears, int drawableCount) {
+        earFinScreenLeftFilter = new boolean[drawableCount];
+        earFinScreenRightFilter = new boolean[drawableCount];
+        if (ears == null || ears.isEmpty()) return;
+
+        List<Integer> sorted = new ArrayList<>(ears);
+        sorted.sort((first, second) -> Float.compare(
+                drawableCenterX(first), drawableCenterX(second)));
+        int splitAfter = Math.max(1, sorted.size() / 2);
+        float largestGap = Float.NEGATIVE_INFINITY;
+        for (int i = 1; i < sorted.size(); i++) {
+            float gap = drawableCenterX(sorted.get(i))
+                    - drawableCenterX(sorted.get(i - 1));
+            if (Float.isFinite(gap) && gap > largestGap) {
+                largestGap = gap;
+                splitAfter = i;
+            }
+        }
+        splitAfter = Math.max(1, Math.min(sorted.size() - 1, splitAfter));
+        for (int i = 0; i < sorted.size(); i++) {
+            int drawable = sorted.get(i);
+            if (drawable < 0 || drawable >= drawableCount) continue;
+            if (i < splitAfter) earFinScreenLeftFilter[drawable] = true;
+            else earFinScreenRightFilter[drawable] = true;
+        }
+    }
+
+    private float drawableCenterX(int drawable) {
+        if (drawable < 0 || drawable >= model.getDrawableCount()) return Float.NaN;
+        float[] vertices = model.getDrawableVertices(drawable);
+        if (vertices == null || vertices.length < 2) return Float.NaN;
+        float minimum = Float.POSITIVE_INFINITY;
+        float maximum = Float.NEGATIVE_INFINITY;
+        for (int i = 0; i + 1 < vertices.length; i += 2) {
+            minimum = Math.min(minimum, vertices[i]);
+            maximum = Math.max(maximum, vertices[i]);
+        }
+        return Float.isFinite(minimum) && Float.isFinite(maximum)
+                ? (minimum + maximum) * .5f : Float.NaN;
     }
 
     private DrawableSignature[] captureDrawableSignatures() {
@@ -660,6 +718,9 @@ final class SenLive2DModel extends CubismUserModel {
         }
         earDiscovery.put("parameter_hits", parameterHits);
         earDiscovery.put("manual_mirror", false);
+        earDiscovery.put("side_split", "neutral_model_x_largest_gap");
+        earDiscovery.put("screen_left", drawableIdsForFilter(earFinScreenLeftFilter));
+        earDiscovery.put("screen_right", drawableIdsForFilter(earFinScreenRightFilter));
         root.put("rabbit_ear_discovery", earDiscovery);
 
         Set<Integer> part115 = collectChildDrawables(new String[]{"Part115"});
@@ -691,7 +752,23 @@ final class SenLive2DModel extends CubismUserModel {
                 .put("head", headCarrierFrame == null
                         ? JSONObject.NULL : headCarrierFrame.toJson())
                 .put("body", bodyCarrierFrame == null
-                        ? JSONObject.NULL : bodyCarrierFrame.toJson());
+                        ? JSONObject.NULL : bodyCarrierFrame.toJson())
+                .put("ahoge_top", ahogeTopCarrierFrame == null
+                        ? JSONObject.NULL : ahogeTopCarrierFrame.toJson())
+                .put("screen_left_bow", screenLeftBowCarrierFrame == null
+                        ? JSONObject.NULL : screenLeftBowCarrierFrame.toJson())
+                .put("screen_right_bow", screenRightBowCarrierFrame == null
+                        ? JSONObject.NULL : screenRightBowCarrierFrame.toJson());
+    }
+
+    private JSONArray drawableIdsForFilter(boolean[] filter) {
+        JSONArray result = new JSONArray();
+        if (model == null || filter == null) return result;
+        int count = Math.min(filter.length, model.getDrawableCount());
+        for (int i = 0; i < count; i++) if (filter[i]) {
+            result.put(model.getDrawableId(i).getString());
+        }
+        return result;
     }
 
     private boolean isSelectedAccessoryDrawable(int index) {
@@ -711,25 +788,63 @@ final class SenLive2DModel extends CubismUserModel {
                 model, collectChildDrawables(headParts));
         bodyCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
                 model, collectChildDrawables(bodyParts));
+        if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
+            ahogeTopCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
+                    model, collectChildDrawables(MAID_AHOGE_TOP_PART_IDS));
+            MeshAnchorFrame firstBow = MeshAnchorFrame.fromLargestStableTriangle(
+                    model, collectChildDrawables(new String[]{MAID_SIDE_BOW_PART_IDS[0]}));
+            MeshAnchorFrame secondBow = MeshAnchorFrame.fromLargestStableTriangle(
+                    model, collectChildDrawables(new String[]{MAID_SIDE_BOW_PART_IDS[1]}));
+            if (firstBow != null && secondBow != null
+                    && firstBow.neutralCenterX() <= secondBow.neutralCenterX()) {
+                screenLeftBowCarrierFrame = firstBow;
+                screenRightBowCarrierFrame = secondBow;
+            } else {
+                screenLeftBowCarrierFrame = secondBow;
+                screenRightBowCarrierFrame = firstBow;
+            }
+        }
         neutralAhogeRoot = compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR
                 ? currentAhogeRootPoint() : null;
         appendAppearanceDetail("固定三角载体：头 "
                 + (headCarrierFrame == null ? "缺失" : headCarrierFrame.drawableId)
                 + " · 身体 "
                 + (bodyCarrierFrame == null ? "缺失" : bodyCarrierFrame.drawableId)
+                + (ahogeTopCarrierFrame == null ? "" : " · 呆毛头顶 "
+                + ahogeTopCarrierFrame.drawableId)
+                + (screenLeftBowCarrierFrame == null ? "" : " · 画面左蝴蝶结 "
+                + screenLeftBowCarrierFrame.drawableId)
+                + (screenRightBowCarrierFrame == null ? "" : " · 画面右蝴蝶结 "
+                + screenRightBowCarrierFrame.drawableId)
                 + (neutralAhogeRoot == null ? "" : " · 呆毛根部已保留"));
     }
 
     float[] currentCarrierTriangle(CompositeOverlayGroup group) {
-        MeshAnchorFrame frame = group == CompositeOverlayGroup.TAIL
-                ? bodyCarrierFrame : headCarrierFrame;
+        MeshAnchorFrame frame = group == CompositeOverlayGroup.TAIL ? bodyCarrierFrame
+                : group == CompositeOverlayGroup.AHOGE && ahogeTopCarrierFrame != null
+                ? ahogeTopCarrierFrame : headCarrierFrame;
         return frame == null ? null : frame.currentTriangle(model);
     }
 
     float[] neutralCarrierTriangle(CompositeOverlayGroup group) {
-        MeshAnchorFrame frame = group == CompositeOverlayGroup.TAIL
-                ? bodyCarrierFrame : headCarrierFrame;
+        MeshAnchorFrame frame = group == CompositeOverlayGroup.TAIL ? bodyCarrierFrame
+                : group == CompositeOverlayGroup.AHOGE && ahogeTopCarrierFrame != null
+                ? ahogeTopCarrierFrame : headCarrierFrame;
         return frame == null ? null : frame.neutralTriangle();
+    }
+
+    float[] currentEarCarrierTriangle(boolean screenLeft) {
+        MeshAnchorFrame frame = screenLeft
+                ? screenLeftBowCarrierFrame : screenRightBowCarrierFrame;
+        return frame == null ? currentCarrierTriangle(CompositeOverlayGroup.EAR_FINS)
+                : frame.currentTriangle(model);
+    }
+
+    float[] neutralEarCarrierTriangle(boolean screenLeft) {
+        MeshAnchorFrame frame = screenLeft
+                ? screenLeftBowCarrierFrame : screenRightBowCarrierFrame;
+        return frame == null ? neutralCarrierTriangle(CompositeOverlayGroup.EAR_FINS)
+                : frame.neutralTriangle();
     }
 
     float[] currentAhogeRootPoint() {
@@ -744,6 +859,14 @@ final class SenLive2DModel extends CubismUserModel {
 
     float[] currentCompositeGroupCenter(CompositeOverlayGroup group) {
         boolean[] filter = compositeGroupFilters.get(group);
+        if (filter == null) return null;
+        Set<Integer> indices = new LinkedHashSet<>();
+        for (int i = 0; i < filter.length; i++) if (filter[i]) indices.add(i);
+        return centerOfVisibleOrAll(indices);
+    }
+
+    float[] currentEarSideCenter(boolean screenLeft) {
+        boolean[] filter = screenLeft ? earFinScreenLeftFilter : earFinScreenRightFilter;
         if (filter == null) return null;
         Set<Integer> indices = new LinkedHashSet<>();
         for (int i = 0; i < filter.length; i++) if (filter[i]) indices.add(i);
@@ -1891,6 +2014,10 @@ final class SenLive2DModel extends CubismUserModel {
 
         float[] neutralTriangle() {
             return neutral.clone();
+        }
+
+        float neutralCenterX() {
+            return (neutral[0] + neutral[2] + neutral[4]) / 3f;
         }
 
         JSONObject toJson() throws JSONException {

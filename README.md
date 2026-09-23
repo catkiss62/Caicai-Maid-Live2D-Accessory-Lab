@@ -3,6 +3,24 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.13
+
+- Splits Sen's authored ear-fin rig into screen-left and screen-right filtered draw passes without
+  duplicating or mirroring meshes. The donor model still updates once, so its native two-pulse ear
+  animation remains intact.
+- Uses the maid metadata's `Part30` and `Part31` side bows as separate perspective-aware carriers.
+  Their neutral model-space X positions decide screen side; editor-side left/right names are not
+  trusted. Each ear inherits only its bow's geometry motion, never the bow's opacity.
+- Preserves the confirmed v0.1.12 neutral ear placement exactly. Both side adjustments default to
+  identity and inherit the existing pair scale/position/rotation; only motion after leaving the
+  neutral pose differs.
+- Adds numeric per-side X/Y/scale/rotation fine tuning. The accessory selector remains exactly
+  tail, ahoge, and ear fins; a separate ear target button cycles pair, screen-left, and screen-right.
+- Inserts the ear passes immediately before the two maid side-bow drawables, allowing the bows and
+  later front layers to occlude the fins while hiding the maid headwear leaves the fins visible.
+- Moves the ahoge carrier from the whole face to the maid headwear/top local mesh; the verified tail
+  carrier is unchanged.
+
 ## v0.1.12
 
 - Removes the maid-to-Sen rigid parameter copy completely. Identically named Live2D parameters in

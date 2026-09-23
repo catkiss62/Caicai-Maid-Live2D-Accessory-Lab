@@ -125,16 +125,20 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? "maid_mesh_one_way_triangle_carriers"
+                    ? "maid_bow_side_local_one_way_carriers"
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("sen_rigid_parameter_drive", false);
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "maid_head_neutral_to_current_on_accessory_bind_pose")
-                    .put("ear_fins", "maid_head_neutral_to_current_native_pair")
+                    .put("ahoge", "maid_headwear_top_local_triangle")
+                    .put("ear_fins_screen_left", "maid_screen_left_side_bow_local_triangle")
+                    .put("ear_fins_screen_right", "maid_screen_right_side_bow_local_triangle")
                     .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
+            root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
+            root.put("ear_neutral_pose_policy", "inherit_v0.1.12_pair_projection_identity_offsets");
+            root.put("ear_layer_policy", "draw_before_maid_side_bows_and_front_layers");
             root.put("head_test_motions", new org.json.JSONArray(Arrays.asList(
                     "head_x_sweep", "head_y_sweep", "head_z_sweep", "head_sweep")));
             root.put("stage_transform", new JSONObject()
@@ -160,7 +164,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.12-one-way-mesh-bind";
+            return "0.1.13-side-bow-ear-bind";
         }
     }
 
@@ -361,21 +365,62 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         OverlayCalibration calibration = overlayCalibration;
         CompositeOverlayGroup group = CompositeOverlayGroup.EAR_FINS;
         if (overlayModel == null || !calibration.isVisible(group)) return;
+        drawEarFinSide(true, calibration);
+        drawEarFinSide(false, calibration);
+    }
+
+    private void drawEarFinSide(boolean screenLeft, OverlayCalibration calibration) {
+        CompositeOverlayGroup group = CompositeOverlayGroup.EAR_FINS;
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        // Draw the complete native pair once. Carrier correction acts on the shared head motion;
-        // ParamL_angle/ParamR_angle/ParamR_angle2 remain local and keep their authored twitch.
-        if (TRIANGLE_CARRIER_ATTACHMENT_ENABLED) {
-            applyMaidCarrierMotion(group, senGroupProjection);
-        }
+        // Preserve the confirmed v0.1.12 neutral pose: both side passes begin from exactly the
+        // same pair projection and pair-rotation pivot. Side fine-tuning defaults to identity.
         OverlayCalibration.Transform ear = calibration.get(group);
-        float[] modelCenter = overlayModel.currentCompositeGroupCenter(group);
-        float[] center = pointToClip(overlayModel, senGroupProjection, modelCenter);
-        if (center != null) {
-            applyRotateAround(senGroupProjection, ear.pairRotation, center[0], center[1]);
+        float[] pairCenterModel = overlayModel.currentCompositeGroupCenter(group);
+        float[] pairCenter = pointToClip(overlayModel, senGroupProjection, pairCenterModel);
+        if (pairCenter != null) {
+            applyRotateAround(senGroupProjection, ear.pairRotation,
+                    pairCenter[0], pairCenter[1]);
         }
-        overlayModel.drawSenGroup(senGroupProjection, group);
+        applyEarFineTune(screenLeft, calibration.getEarFineTune(screenLeft));
+        if (TRIANGLE_CARRIER_ATTACHMENT_ENABLED) {
+            applyMaidEarCarrierMotion(screenLeft, senGroupProjection);
+        }
+        overlayModel.drawSenEarSide(senGroupProjection, screenLeft);
+    }
+
+    private void applyEarFineTune(boolean screenLeft,
+                                  OverlayCalibration.EarFineTune fineTune) {
+        if (fineTune == null) return;
+        float[] modelCenter = overlayModel.currentEarSideCenter(screenLeft);
+        float[] center = pointToClip(overlayModel, senGroupProjection, modelCenter);
+        if (center == null) return;
+        float radians = (float) Math.toRadians(fineTune.rotation);
+        float a = fineTune.scale * (float) Math.cos(radians);
+        float b = fineTune.scale * (float) Math.sin(radians);
+        float[] transform = {
+                a, b, 0f, 0f,
+                -b, a, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                fineTune.x + center[0] - a * center[0] + b * center[1],
+                fineTune.y + center[1] - b * center[0] - a * center[1],
+                0f, 1f
+        };
+        overlayModel.applyClipTransform(senGroupProjection, transform);
+    }
+
+    private void applyMaidEarCarrierMotion(boolean screenLeft,
+                                           CubismMatrix44 accessoryProjection) {
+        if (model == null || overlayModel == null) return;
+        float[] mainNow = triangleToClip(model, maidProjection,
+                model.currentEarCarrierTriangle(screenLeft));
+        float[] mainNeutral = triangleToClip(model, maidProjection,
+                model.neutralEarCarrierTriangle(screenLeft));
+        if (mainNow == null || mainNeutral == null) return;
+        Similarity2D maidMotion = Similarity2D.betweenTriangle(
+                mainNeutral, mainNow, .50f, 1.80f);
+        overlayModel.applyClipTransform(accessoryProjection, maidMotion.toMatrix());
     }
 
     private void applyMaidCarrierMotion(CompositeOverlayGroup group,

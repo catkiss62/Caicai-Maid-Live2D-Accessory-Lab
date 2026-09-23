@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v2_native_ears";
-    private static final String VERSION = "v0.1.12 · 女仆网格单向挂件绑定";
+    private static final String VERSION = "v0.1.13 · 蝴蝶结双侧耳鳍挂件绑定";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
             CompositeOverlayGroup.AHOGE,
@@ -58,10 +58,12 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     private TextView statusText;
     private TextView summaryText;
     private TextView calibrationText;
+    private Button earTargetButton;
     private FrameLayout loadingOverlay;
     private TextView loadingText;
     private OverlayCalibration calibration;
     private CompositeOverlayGroup selectedGroup = CompositeOverlayGroup.EAR_FINS;
+    private EarAdjustmentTarget earAdjustmentTarget = EarAdjustmentTarget.PAIR;
     private CompositeTestMotion selectedMotion = CompositeTestMotion.LIVE;
     private String pendingExportReport;
     private boolean staticMode;
@@ -93,6 +95,8 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         if (selectedGroup == CompositeOverlayGroup.GLOBAL) {
             selectedGroup = CompositeOverlayGroup.EAR_FINS;
         }
+        earAdjustmentTarget = EarAdjustmentTarget.fromId(
+                prefs.getString("ear_adjustment_target", EarAdjustmentTarget.PAIR.id));
         staticMode = prefs.getBoolean("static_mode", false);
         buildUi();
         loadModels();
@@ -162,12 +166,15 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         panel.addView(moveRow);
 
         panel.addView(section("耳鳍原生双耳调节"));
+        earTargetButton = panelButton(earAdjustmentTarget.label);
+        earTargetButton.setOnClickListener(v -> stepEarAdjustmentTarget());
+        panel.addView(earTargetButton);
         LinearLayout earRow2 = row();
-        earRow2.addView(actionButton("整体左转", () -> adjustEarPairRotation(1f)), weighted());
-        earRow2.addView(actionButton("整体右转", () -> adjustEarPairRotation(-1f)), weighted());
+        earRow2.addView(actionButton("向左转", () -> adjustEarRotation(1f)), weighted());
+        earRow2.addView(actionButton("向右转", () -> adjustEarRotation(-1f)), weighted());
         panel.addView(earRow2);
-        panel.addView(text("左右耳、间距与各自动作由 Sen 原生网格和参数负责；"
-                        + "本版不再使用 App 镜像。",
+        panel.addView(text("整对保留现有零位；画面左/右可分别微调。"
+                        + "双抖仍由 Sen 原生网格负责，不继承头饰显隐。",
                 9, Color.rgb(180, 159, 199)));
         calibrationText = text("", 10, Color.rgb(225, 204, 240));
         panel.addView(calibrationText);
@@ -248,7 +255,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         diagnostic.addView(actionButton("还原整体", this::resetStage), weighted());
         panel.addView(diagnostic);
         panel.addView(text("点击模型会触发“点击”预设；完全静止时不会触发。"
-                        + "图层：尾巴最后、耳鳍位于双马尾上方一层、呆毛最前。",
+                        + "图层：尾巴最后、耳鳍先于两侧蝴蝶结、呆毛最前。",
                 9, Color.rgb(180, 159, 199)));
         page.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -324,19 +331,47 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     }
 
     private void adjust(float scale, float x, float y) {
-        calibration = calibration.withDelta(selectedGroup, scale, x, y);
+        if (selectedGroup == CompositeOverlayGroup.EAR_FINS
+                && earAdjustmentTarget != EarAdjustmentTarget.PAIR) {
+            calibration = calibration.withEarSideDelta(
+                    earAdjustmentTarget == EarAdjustmentTarget.SCREEN_LEFT,
+                    scale, x, y, 0f);
+        } else {
+            calibration = calibration.withDelta(selectedGroup, scale, x, y);
+        }
         persistCalibration();
     }
 
-    private void adjustEarPairRotation(float pairRotation) {
-        calibration = calibration.withEarDelta(0f, 0f, pairRotation);
+    private void adjustEarRotation(float rotation) {
+        if (earAdjustmentTarget == EarAdjustmentTarget.PAIR) {
+            calibration = calibration.withEarDelta(0f, 0f, rotation);
+        } else {
+            calibration = calibration.withEarSideDelta(
+                    earAdjustmentTarget == EarAdjustmentTarget.SCREEN_LEFT,
+                    0f, 0f, 0f, rotation);
+        }
         selectedGroup = CompositeOverlayGroup.EAR_FINS;
         persistCalibration();
     }
 
     private void resetGroup() {
-        calibration = calibration.reset(selectedGroup);
+        if (selectedGroup == CompositeOverlayGroup.EAR_FINS
+                && earAdjustmentTarget != EarAdjustmentTarget.PAIR) {
+            calibration = calibration.resetEarSide(
+                    earAdjustmentTarget == EarAdjustmentTarget.SCREEN_LEFT);
+        } else {
+            calibration = calibration.reset(selectedGroup);
+        }
         persistCalibration();
+    }
+
+    private void stepEarAdjustmentTarget() {
+        earAdjustmentTarget = earAdjustmentTarget.next();
+        prefs.edit().putString("ear_adjustment_target", earAdjustmentTarget.id).apply();
+        selectedGroup = CompositeOverlayGroup.EAR_FINS;
+        prefs.edit().putString("calibration_group", selectedGroup.id).apply();
+        if (earTargetButton != null) earTargetButton.setText(earAdjustmentTarget.label);
+        updateCalibrationText();
     }
 
     private void toggleGroup() {
@@ -369,7 +404,10 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
 
     private void updateCalibrationText() {
         if (calibrationText != null) {
-            calibrationText.setText(calibration.describe(selectedGroup) + "（自动保存）");
+            String target = selectedGroup == CompositeOverlayGroup.EAR_FINS
+                    ? "\n当前按钮调节目标：" + earAdjustmentTarget.shortLabel : "";
+            calibrationText.setText(calibration.describe(selectedGroup)
+                    + target + "（自动保存）");
         }
     }
 
@@ -489,7 +527,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.12.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.13.json");
         });
     }
 
@@ -694,5 +732,33 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     }
     private static float clamp(float value, float min, float max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private enum EarAdjustmentTarget {
+        PAIR("pair", "耳鳍调节：整对", "整对"),
+        SCREEN_LEFT("screen_left", "耳鳍调节：画面左", "画面左"),
+        SCREEN_RIGHT("screen_right", "耳鳍调节：画面右", "画面右");
+
+        final String id;
+        final String label;
+        final String shortLabel;
+
+        EarAdjustmentTarget(String id, String label, String shortLabel) {
+            this.id = id;
+            this.label = label;
+            this.shortLabel = shortLabel;
+        }
+
+        EarAdjustmentTarget next() {
+            EarAdjustmentTarget[] targets = values();
+            return targets[(ordinal() + 1) % targets.length];
+        }
+
+        static EarAdjustmentTarget fromId(String id) {
+            for (EarAdjustmentTarget target : values()) {
+                if (target.id.equals(id)) return target;
+            }
+            return PAIR;
+        }
     }
 }
