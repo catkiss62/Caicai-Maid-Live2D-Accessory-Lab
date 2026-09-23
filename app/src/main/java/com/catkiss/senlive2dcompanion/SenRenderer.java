@@ -91,16 +91,20 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile boolean geometryConstraintEnabled = true;
     private final long[] geometryFrames = new long[2];
     private final float[] maximumEarCorrection = new float[2];
+    private float maximumEarSharedShift;
     private final float[] maximumRootCorrection = new float[2];
-    private final float[] maximumProximalCorrection = new float[2];
     private float lastEarBeforeSpan;
     private float lastEarAfterSpan;
     private float lastEarAllowedSpan;
     private float lastEarCorrection;
+    private float lastEarSharedShift;
+    private float lastEarFaceParallax;
+    private float lastEarScreenTurn;
     private float lastHeadTurn;
     private float lastRootBeforeGap;
     private float lastRootCorrection;
-    private float lastProximalCorrection;
+    private float lastDirectionAfterGap;
+    private float maximumDirectionAfterGap;
     private long earMeasurementFailures;
     private long ahogeHairFallbackFrames;
 
@@ -174,17 +178,22 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("normalized_head_turn", lastHeadTurn)
                     .put("maximum_ear_translation_baseline_clip", maximumEarCorrection[0])
                     .put("maximum_ear_translation_new_clip", maximumEarCorrection[1])
+                    .put("ear_shared_shift_clip", lastEarSharedShift)
+                    .put("ear_face_parallax_clip", lastEarFaceParallax)
+                    .put("ear_screen_turn_signed", lastEarScreenTurn)
+                    .put("maximum_ear_shared_shift_clip", maximumEarSharedShift)
                     .put("root_to_hair_target_before_clip", lastRootBeforeGap)
                     .put("root_to_hair_target_after_clip", lastRootCorrection)
+                    .put("direction_to_head_axis_after_clip", lastDirectionAfterGap)
+                    .put("maximum_direction_gap_new_clip", maximumDirectionAfterGap)
                     .put("maximum_root_gap_baseline_clip", maximumRootCorrection[0])
                     .put("maximum_root_gap_new_clip", maximumRootCorrection[1])
-                    .put("near_root_vertex_correction_model", lastProximalCorrection)
-                    .put("maximum_near_root_vertex_correction_new_model",
-                            maximumProximalCorrection[1])
+                    .put("near_root_vertex_correction_model", 0)
+                    .put("maximum_near_root_vertex_correction_new_model", 0)
                     .put("ear_measurement_failures", earMeasurementFailures)
                     .put("ahoge_hair_fallback_frames", ahogeHairFallbackFrames));
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? (geometryConstraintEnabled ? "actual_mesh_ear_span_and_top_hair_root"
+                    ? (geometryConstraintEnabled ? "actual_mesh_ear_span_shared_shift_and_two_point_hair_frame"
                     : "v0.1.16_independent_face_mesh_pins")
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
@@ -192,7 +201,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
                     .put("ahoge", geometryConstraintEnabled
-                            ? "maid_top_hair_root_with_near_mesh_lock_and_free_tip"
+                            ? "maid_top_hair_two_point_frame_with_native_mesh_motion"
                             : "v0.1.16_face_mesh_top_center_pin")
                     .put("ear_fins_screen_left", geometryConstraintEnabled
                             ? "actual_drawable_outer_span_constraint" : "v0.1.16_face_mesh_left_pin")
@@ -205,13 +214,14 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("vertical_local_response", .60)
                     .put("actual_outer_span_over_neutral", 1.01)
                     .put("maximum_head_turn_narrowing", .16)
+                    .put("maximum_shared_shift_over_neutral_span", .018)
                     .put("enabled", geometryConstraintEnabled));
             root.put("ahoge_root_lock", new JSONObject()
                     .put("root_source", "Sen ArtMesh151 vertex 8 barycentric anchor")
+                    .put("direction_source", "Sen ArtMesh151 captured direction barycentric anchor")
                     .put("moving_target", "maid_top_hair_triangle_with_neutral_bind_offset")
-                    .put("native_near_root_weight", 0)
-                    .put("locked_root_zone_fraction", .12)
-                    .put("native_blend_complete_fraction", .45)
+                    .put("direction_target", "neutral_Sen_direction_rotated_with_maid_head")
+                    .put("native_mesh_overwrite", false)
                     .put("secondary_motion", "smooth_tip_weighted_velocity_spring")
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
@@ -246,7 +256,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.18-actual-mesh-comparison";
+            return "0.1.19-two-point-ahoge-and-ear-yaw";
         }
     }
 
@@ -473,13 +483,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private void drawOverlayGroup(CompositeOverlayGroup group) {
         OverlayCalibration calibration = overlayCalibration;
         if (overlayModel == null || !calibration.isVisible(group)) return;
-        if (group == CompositeOverlayGroup.AHOGE) {
-            lastProximalCorrection = geometryConstraintEnabled
-                    ? overlayModel.lockAhogeProximalVertices() : 0f;
-            int index = geometryConstraintEnabled ? 1 : 0;
-            maximumProximalCorrection[index] = Math.max(
-                    maximumProximalCorrection[index], lastProximalCorrection);
-        }
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
@@ -548,6 +551,33 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             overlayModel.applyClipTransform(rightEarProjection,
                     new Similarity2D(1f, 0f, -correction, 0f).toMatrix());
         }
+        // The width cap fixes excess separation. A side turn also carries both fins too far
+        // toward the face's screen-facing side; move the pair a little in the opposite direction
+        // without changing its measured span. Read the actual face-side drift when available so
+        // the sign follows the rendered maid instead of assuming a parameter's sign convention.
+        float screenTurn = model.horizontalHeadTurnSigned();
+        lastEarFaceParallax = 0f;
+        Similarity2D grossHead = currentGrossHeadMotion(.65f, .78f, 1.22f);
+        if (grossHead != null && leftNow != null && leftNeutral != null
+                && rightNow != null && rightNeutral != null) {
+            float[] rigidLeft = grossHead.transformPoint(
+                    triangleCenterX(leftNeutral), triangleCenterY(leftNeutral));
+            float[] rigidRight = grossHead.transformPoint(
+                    triangleCenterX(rightNeutral), triangleCenterY(rightNeutral));
+            lastEarFaceParallax = (triangleCenterX(leftNow) + triangleCenterX(rightNow)
+                    - rigidLeft[0] - rigidRight[0]) * .5f;
+            if (Math.abs(lastEarFaceParallax) > neutralSpan * .003f) {
+                screenTurn = Math.copySign(lastHeadTurn, lastEarFaceParallax);
+            }
+        }
+        lastEarScreenTurn = screenTurn;
+        lastEarSharedShift = geometryConstraintEnabled
+                ? -neutralSpan * .018f * screenTurn : 0f;
+        if (Math.abs(lastEarSharedShift) > 1e-6f) {
+            float[] shift = new Similarity2D(1f, 0f, lastEarSharedShift, 0f).toMatrix();
+            overlayModel.applyClipTransform(leftEarProjection, shift);
+            overlayModel.applyClipTransform(rightEarProjection, shift);
+        }
         lastEarBeforeSpan = beforeSpan;
         lastEarAllowedSpan = allowedSpan;
         lastEarCorrection = correction;
@@ -562,6 +592,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         int index = geometryConstraintEnabled ? 1 : 0;
         geometryFrames[index]++;
         maximumEarCorrection[index] = Math.max(maximumEarCorrection[index], correction);
+        maximumEarSharedShift = Math.max(maximumEarSharedShift,
+                Math.abs(lastEarSharedShift));
     }
 
     private float[] prepareOneEarProjection(boolean screenLeft,
@@ -715,7 +747,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 .withScaleResponse(scaleResponse, minimumScale, maximumScale);
     }
 
-    /** Locks the actual Sen root anchor to the maid head, then adds physics only past the root. */
+    /** Maps Sen's hand-placed root and upward point onto a moving frame on the maid's hair. */
     private void applyMaidAhogeRootMotion(CubismMatrix44 accessoryProjection) {
         float[] hairNow = triangleToClip(model, maidProjection,
                 model.currentCarrierTriangle(CompositeOverlayGroup.AHOGE));
@@ -724,10 +756,15 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         Similarity2D grossHeadMotion = currentGrossHeadMotion(.85f, .70f, 1.35f);
         float[] donorRootNow = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.currentAhogeRootPoint());
+        float[] donorDirectionNow = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.currentAhogeDirectionPoint());
         float[] donorRootNeutral = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.neutralAhogeRootPoint());
+        float[] donorDirectionNeutral = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.neutralAhogeDirectionPoint());
         if (hairNow == null || hairNeutral == null || grossHeadMotion == null
-                || donorRootNow == null || donorRootNeutral == null) {
+                || donorRootNow == null || donorDirectionNow == null
+                || donorRootNeutral == null || donorDirectionNeutral == null) {
             ahogeHairFallbackFrames++;
             applyMaidHeadPinMotionLegacy(CompositeOverlayGroup.AHOGE, true,
                     accessoryProjection, .85f, .70f, 1.35f);
@@ -744,17 +781,41 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 + grossHeadMotion.a * bindOffsetY;
         float targetRootX = triangleCenterX(hairNow) + transformedOffsetX;
         float targetRootY = triangleCenterY(hairNow) + transformedOffsetY;
+        // The neutral hand-placed upward vector follows the maid head. The same transform moves
+        // all six live Sen meshes without overwriting the proximal vertices' native deformation.
+        float neutralAxisX = donorDirectionNeutral[0] - donorRootNeutral[0];
+        float neutralAxisY = donorDirectionNeutral[1] - donorRootNeutral[1];
+        float targetDirectionX = targetRootX + grossHeadMotion.a * neutralAxisX
+                - grossHeadMotion.b * neutralAxisY;
+        float targetDirectionY = targetRootY + grossHeadMotion.b * neutralAxisX
+                + grossHeadMotion.a * neutralAxisY;
+        Similarity2D twoPointMotion = Similarity2D.betweenTwoPoints(
+                donorRootNow, donorDirectionNow,
+                targetRootX, targetRootY, targetDirectionX, targetDirectionY);
+        if (twoPointMotion == null) {
+            ahogeHairFallbackFrames++;
+            applyMaidHeadPinMotionLegacy(CompositeOverlayGroup.AHOGE, true,
+                    accessoryProjection, .85f, .70f, 1.35f);
+            return;
+        }
         lastRootBeforeGap = (float) Math.hypot(
                 targetRootX - donorRootNow[0], targetRootY - donorRootNow[1]);
-        Similarity2D rootLockedMotion = grossHeadMotion.mappingPoint(
-                donorRootNow[0], donorRootNow[1], targetRootX, targetRootY);
-        overlayModel.applyClipTransform(accessoryProjection, rootLockedMotion.toMatrix());
+        overlayModel.applyClipTransform(accessoryProjection, twoPointMotion.toMatrix());
         float[] rootAfter = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.currentAhogeRootPoint());
+        float[] directionAfter = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.currentAhogeDirectionPoint());
         if (rootAfter != null) {
             lastRootCorrection = (float) Math.hypot(
                     targetRootX - rootAfter[0], targetRootY - rootAfter[1]);
             maximumRootCorrection[1] = Math.max(maximumRootCorrection[1], lastRootCorrection);
+        }
+        if (directionAfter != null) {
+            lastDirectionAfterGap = (float) Math.hypot(
+                    targetDirectionX - directionAfter[0],
+                    targetDirectionY - directionAfter[1]);
+            maximumDirectionAfterGap = Math.max(
+                    maximumDirectionAfterGap, lastDirectionAfterGap);
         }
 
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
@@ -932,6 +993,25 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             this.b = b;
             this.tx = tx;
             this.ty = ty;
+        }
+
+        static Similarity2D betweenTwoPoints(float[] sourceRoot, float[] sourceDirection,
+                                             float targetRootX, float targetRootY,
+                                             float targetDirectionX, float targetDirectionY) {
+            float sx = sourceDirection[0] - sourceRoot[0];
+            float sy = sourceDirection[1] - sourceRoot[1];
+            float denominator = sx * sx + sy * sy;
+            if (!Float.isFinite(denominator) || denominator < 1e-8f) return null;
+            float dx = targetDirectionX - targetRootX;
+            float dy = targetDirectionY - targetRootY;
+            float a = (sx * dx + sy * dy) / denominator;
+            float b = (sx * dy - sy * dx) / denominator;
+            float scale = (float) Math.hypot(a, b);
+            if (!Float.isFinite(scale) || scale < 1e-6f) return null;
+            float limitedScale = clamp(scale, .70f, 1.35f);
+            return new Similarity2D(a * limitedScale / scale, b * limitedScale / scale,
+                    0f, 0f).mappingPoint(sourceRoot[0], sourceRoot[1],
+                    targetRootX, targetRootY);
         }
 
         static Similarity2D betweenTriangle(float[] source, float[] destination,

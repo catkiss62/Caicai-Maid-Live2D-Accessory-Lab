@@ -62,6 +62,8 @@ final class OverlayCalibration {
     private int screenRightEarLayerOffset;
 
     private OverlayCalibration() {
+        screenLeftEarLayerOffset = -1;
+        screenRightEarLayerOffset = -1;
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
             transforms.put(group, defaultTransform(group));
         }
@@ -94,9 +96,9 @@ final class OverlayCalibration {
             if (layers != null) {
                 result.ahogeLayerOffset = clampLayerOffset(layers.optInt("ahoge", 0));
                 result.screenLeftEarLayerOffset = clampLayerOffset(
-                        layers.optInt("ear_fins_screen_left", 0));
+                        layers.optInt("ear_fins_screen_left", -1));
                 result.screenRightEarLayerOffset = clampLayerOffset(
-                        layers.optInt("ear_fins_screen_right", 0));
+                        layers.optInt("ear_fins_screen_right", -1));
             }
         } catch (JSONException ignored) { }
         return result;
@@ -139,10 +141,10 @@ final class OverlayCalibration {
         OverlayCalibration result = copy();
         if (screenLeft) {
             result.screenLeftEar = defaultEarFineTune();
-            result.screenLeftEarLayerOffset = 0;
+            result.screenLeftEarLayerOffset = -1;
         } else {
             result.screenRightEar = defaultEarFineTune();
-            result.screenRightEarLayerOffset = 0;
+            result.screenRightEarLayerOffset = -1;
         }
         return result;
     }
@@ -191,8 +193,8 @@ final class OverlayCalibration {
         if (group == CompositeOverlayGroup.AHOGE) {
             result.ahogeLayerOffset = 0;
         } else if (group == CompositeOverlayGroup.EAR_FINS) {
-            result.screenLeftEarLayerOffset = 0;
-            result.screenRightEarLayerOffset = 0;
+            result.screenLeftEarLayerOffset = -1;
+            result.screenRightEarLayerOffset = -1;
         }
         return result;
     }

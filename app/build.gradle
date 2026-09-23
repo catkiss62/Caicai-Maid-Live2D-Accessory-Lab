@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 19
-        versionName '0.1.18-actual-mesh-comparison'
+        versionCode 20
+        versionName '0.1.19-two-point-ahoge-and-ear-yaw'
     }
 
     signingConfigs {

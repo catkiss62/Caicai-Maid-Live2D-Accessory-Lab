@@ -3,6 +3,20 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.19
+
+- Removes v0.1.18's captured near-root mesh overwrite, which froze the lower ahoge and could
+  expose a cut. Uses Sen's hand-picked root and upward direction points to map all six native
+  animated meshes into one maid hair/head frame. The native bend and tip motion remain live.
+- Preserves the measured ear outer-span cap, then adds a small shared horizontal shift in the
+  opposite screen direction of the head turn. A screen-right turn moves both fins slightly left;
+  the reverse turn moves both fins slightly right. The shift reaches 1.8% of neutral ear span at
+  full turn, leaving the span and the existing small-pose/zoom behaviour intact.
+- Sets the confirmed layer offset to `-1` for both ears on fresh imports and reset. Existing
+  user-saved calibration values are respected. The comparison switch still selects v0.1.16.
+- Adds a signed screen-turn probe, pair shift and two-point direction error to the diagnostic so
+  the next phone report can verify the applied sign and tune the small amount if necessary.
+
 ## v0.1.18
 
 - Adds a one-tap comparison between the accepted v0.1.16 head path and an experimental actual-mesh

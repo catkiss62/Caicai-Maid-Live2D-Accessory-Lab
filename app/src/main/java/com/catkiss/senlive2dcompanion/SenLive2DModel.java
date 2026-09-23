@@ -199,7 +199,7 @@ final class SenLive2DModel extends CubismUserModel {
     private AhogeAnchorPoint ahogeRootAnchor;
     private AhogeAnchorPoint ahogeDirectionAnchor;
     private float[] neutralAhogeRoot;
-    private final Map<Integer, float[]> neutralAhogeVertices = new LinkedHashMap<>();
+    private float[] neutralAhogeDirection;
     private float[] neutralLeftEarBounds;
     private float[] neutralRightEarBounds;
     private float referenceDrawableLeft = -1.0f;
@@ -1093,13 +1093,11 @@ final class SenLive2DModel extends CubismUserModel {
         }
         neutralAhogeRoot = compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR
                 ? currentAhogeRootPoint() : null;
-        neutralAhogeVertices.clear();
+        neutralAhogeDirection = compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR
+                ? currentAhogeDirectionPoint() : null;
         neutralLeftEarBounds = null;
         neutralRightEarBounds = null;
         if (compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR) {
-            for (int index : collectExistingDrawables(AHOGE_DRAWABLE_IDS)) {
-                neutralAhogeVertices.put(index, model.getDrawableVertices(index).clone());
-            }
             neutralLeftEarBounds = earModelBounds(true);
             neutralRightEarBounds = earModelBounds(false);
         }
@@ -1215,7 +1213,21 @@ final class SenLive2DModel extends CubismUserModel {
         return neutralAhogeRoot == null ? null : neutralAhogeRoot.clone();
     }
 
+    float[] currentAhogeDirectionPoint() {
+        if (model == null || ahogeDirectionAnchor == null) return null;
+        float[] value = ahogeDirectionAnchor.currentPoint(model);
+        return value == null ? null : value.clone();
+    }
+
+    float[] neutralAhogeDirectionPoint() {
+        return neutralAhogeDirection == null ? null : neutralAhogeDirection.clone();
+    }
+
     float horizontalHeadTurnMagnitude() {
+        return Math.abs(horizontalHeadTurnSigned());
+    }
+
+    float horizontalHeadTurnSigned() {
         if (model == null) return 0f;
         int index = findParameterIndex("ParamAngleX3");
         if (index < 0) return 0f;
@@ -1225,7 +1237,7 @@ final class SenLive2DModel extends CubismUserModel {
                 ? model.getParameterMaximumValue(index) - neutral
                 : neutral - model.getParameterMinimumValue(index);
         return range < 1e-5f ? 0f
-                : Math.max(0f, Math.min(1f, Math.abs(value - neutral) / range));
+                : Math.max(-1f, Math.min(1f, (value - neutral) / range));
     }
 
     /** Clip-space bounds of the actual drawable vertices, after this side's draw transform. */
@@ -2270,45 +2282,6 @@ final class SenLive2DModel extends CubismUserModel {
                 vertices[i + 1] = root[1] + dx * sin + dy * cos + offsetY * weight;
             }
         }
-    }
-
-    /** Replace native near-root deformation with the captured bind mesh, blending into the tip. */
-    float lockAhogeProximalVertices() {
-        if (model == null || neutralAhogeRoot == null || !hasCompleteAhogeAnchor()) return 0f;
-        float[] rootNow = currentAhogeRootPoint();
-        if (rootNow == null) return 0f;
-        float fullLength = 0f;
-        for (float[] bind : neutralAhogeVertices.values()) {
-            for (int v = 0; v + 1 < bind.length; v += 2) {
-                fullLength = Math.max(fullLength, (float) Math.hypot(
-                        bind[v] - neutralAhogeRoot[0], bind[v + 1] - neutralAhogeRoot[1]));
-            }
-        }
-        if (fullLength < 1e-5f) return 0f;
-        float maximumCorrection = 0f;
-        for (Map.Entry<Integer, float[]> entry : neutralAhogeVertices.entrySet()) {
-            int index = entry.getKey();
-            if (!isDrawableVisible(index)) continue;
-            float[] bind = entry.getValue();
-            float[] vertices = model.getDrawableVertices(index);
-            if (vertices.length != bind.length) continue;
-            for (int v = 0; v + 1 < bind.length; v += 2) {
-                float distance = (float) Math.hypot(
-                        bind[v] - neutralAhogeRoot[0], bind[v + 1] - neutralAhogeRoot[1]);
-                float t = Math.max(0f, Math.min(1f,
-                        (distance / fullLength - .12f) / .33f));
-                float nativeWeight = t * t * (3f - 2f * t);
-                float rigidX = rootNow[0] + bind[v] - neutralAhogeRoot[0];
-                float rigidY = rootNow[1] + bind[v + 1] - neutralAhogeRoot[1];
-                float resultX = rigidX * (1f - nativeWeight) + vertices[v] * nativeWeight;
-                float resultY = rigidY * (1f - nativeWeight) + vertices[v + 1] * nativeWeight;
-                maximumCorrection = Math.max(maximumCorrection, (float) Math.hypot(
-                        resultX - vertices[v], resultY - vertices[v + 1]));
-                vertices[v] = resultX;
-                vertices[v + 1] = resultY;
-            }
-        }
-        return maximumCorrection;
     }
 
     private void captureReferenceDrawableBounds() {
