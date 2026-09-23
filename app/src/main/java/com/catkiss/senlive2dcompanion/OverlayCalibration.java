@@ -160,19 +160,16 @@ final class OverlayCalibration {
     }
 
     private static Transform defaultTransform(CompositeOverlayGroup group) {
-        // Raw values confirmed by the v0.1.2 on-device report. Existing installs keep their saved
-        // values; reset and clean imports now reproduce the same bind pose.
+        // Binding zero pose confirmed by the v0.1.6 on-device report. Existing installs keep their
+        // saved values; reset and clean imports reproduce the same independently aligned pose.
         if (group == CompositeOverlayGroup.GLOBAL) {
             return new Transform(1f, 0f, .20f, true, 0f, 0f, 0f);
         }
         if (group == CompositeOverlayGroup.AHOGE) {
-            return new Transform(.88f, -.02f, -.05f, true, 0f, 0f, 0f);
+            return new Transform(.88f, -.03f, -.05f, true, 0f, 0f, 0f);
         }
         if (group == CompositeOverlayGroup.EAR_FINS) {
-            // v0.1.2's scale/position and head-tilt compensation remain valid. The old symmetric
-            // rotation and spacing values belonged to an App-created mirrored ear and must not be
-            // applied to Sen's native two-ear rig.
-            return new Transform(1.14f, .01f, -.29f, true, 0f, 0f, -10f);
+            return new Transform(1.24f, -.01f, -.29f, true, 0f, 0f, 5f);
         }
         if (group == CompositeOverlayGroup.TAIL) {
             return new Transform(.96f, .02f, -.24f, true, 0f, 0f, 0f);

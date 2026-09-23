@@ -32,10 +32,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private static final String TAG = "SenNativeCubism";
-    // The tail's two-point body attachment was confirmed on-device. Head accessories instead use
-    // Ruby -> Sen parameter drive and their own authored rigs; applying another shared head matrix
-    // made the ahoge and ears behave as one object and amplified stage transforms.
-    private static final boolean TAIL_ATTACHMENT_ENABLED = true;
+    // Each accessory is rendered through its own filter and calibrated projection. The two head
+    // groups may follow the same Ruby head frame, but they receive separate correction matrices;
+    // there is deliberately no combined ahoge + ear-fins drawable group.
+    private static final boolean PER_ACCESSORY_ATTACHMENT_ENABLED = true;
 
     private final Context context;
     private final Listener listener;
@@ -119,10 +119,17 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("main_model", "caicai_maid");
             root.put("accessories", new org.json.JSONArray(
                     Arrays.asList("ahoge", "ear_fins", "tail")));
+            root.put("calibration_cycle", new org.json.JSONArray(
+                    Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
-            root.put("attachment_mode", TAIL_ATTACHMENT_ENABLED
-                    ? "tail_two_point_head_parameter_driven" : "parameter_driven");
+            root.put("attachment_mode", PER_ACCESSORY_ATTACHMENT_ENABLED
+                    ? "per_accessory_two_point" : "parameter_driven");
             root.put("attachment_transform_space", "shared_post_projection");
+            root.put("attachment_groups", new JSONObject()
+                    .put("ahoge", "independent_head_frame")
+                    .put("ear_fins", "independent_head_frame")
+                    .put("tail", "independent_body_frame")
+                    .put("combined_group", false));
             root.put("stage_transform", new JSONObject()
                     .put("scale", stageScale)
                     .put("x", stageTranslateX)
@@ -144,7 +151,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.6-native-ear-rig";
+            return "0.1.7-independent-attachments";
         }
     }
 
@@ -335,7 +342,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
-        if (TAIL_ATTACHMENT_ENABLED && group == CompositeOverlayGroup.TAIL) {
+        if (PER_ACCESSORY_ATTACHMENT_ENABLED) {
             applyAttachmentCorrection(group, senGroupProjection);
         }
         overlayModel.drawSenGroup(senGroupProjection, group);
@@ -348,6 +355,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         prepareProjection(overlayModel, senGroupProjection,
                 calibration.combinedScale(group),
                 calibration.combinedX(group), calibration.combinedY(group));
+        if (PER_ACCESSORY_ATTACHMENT_ENABLED) {
+            applyAttachmentCorrection(group, senGroupProjection);
+        }
         // The complete Sen ear rig is one authored object. Draw it once so ParamL_angle,
         // ParamR_angle and ParamR_angle2 keep their original independent left/right keyforms.
         // Only the pair rotation survives from the old tuning UI; manual spacing and mirrored
@@ -375,10 +385,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         if (mainNow == null || mainNeutral == null
                 || accessoryNow == null || accessoryNeutral == null) return;
 
-        // The tail is the only group that still needs a two-point correction. First obtain the
-        // maid's neutral -> current body motion, apply it to the donor's calibrated neutral frame,
-        // then replace the donor's incompatible rigid body frame with that target frame. The
-        // source points do not come from the tail mesh, so its local swing remains visible.
+        // This method is called once for one drawable group and one calibrated projection. First
+        // obtain the maid's neutral -> current head/body motion, apply it to that group's donor
+        // neutral frame, then replace the donor's incompatible rigid frame with the target frame.
+        // The source points never come from accessory vertices, so ahoge bend, ear twitch and tail
+        // swing remain intact and no two accessory filters can be merged by the attachment pass.
         Similarity2D maidMotion = Similarity2D.between(mainNeutral, mainNow, .35f, 2.5f);
         float[] targetAccessoryPose = maidMotion.transformPose(accessoryNeutral);
         Similarity2D correction = Similarity2D.between(

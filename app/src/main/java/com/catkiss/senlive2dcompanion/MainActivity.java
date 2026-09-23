@@ -41,7 +41,12 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v2_native_ears";
-    private static final String VERSION = "v0.1.6 · 原生双耳与独立呆毛";
+    private static final String VERSION = "v0.1.7 · 三配件独立挂件绑定";
+    private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
+            CompositeOverlayGroup.TAIL,
+            CompositeOverlayGroup.AHOGE,
+            CompositeOverlayGroup.EAR_FINS
+    };
     private static final long MAX_EXTRACTED_BYTES = 1_500_000_000L;
     private static final int MAX_ZIP_ENTRIES = 8_000;
 
@@ -83,6 +88,11 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 prefs.getString(CALIBRATION_KEY, ""));
         selectedGroup = CompositeOverlayGroup.fromId(
                 prefs.getString("calibration_group", CompositeOverlayGroup.EAR_FINS.id));
+        // GLOBAL is a shared coordinate base, not an accessory. Older builds accidentally exposed
+        // it as a fourth "ahoge + ear fins" selection in the previous/next cycle.
+        if (selectedGroup == CompositeOverlayGroup.GLOBAL) {
+            selectedGroup = CompositeOverlayGroup.EAR_FINS;
+        }
         staticMode = prefs.getBoolean("static_mode", false);
         buildUi();
         loadModels();
@@ -331,9 +341,16 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     }
 
     private void stepGroup(int delta) {
-        CompositeOverlayGroup[] groups = CompositeOverlayGroup.values();
-        int index = (selectedGroup.ordinal() + delta + groups.length) % groups.length;
-        selectedGroup = groups[index];
+        int current = 0;
+        for (int i = 0; i < SELECTABLE_ACCESSORY_GROUPS.length; i++) {
+            if (SELECTABLE_ACCESSORY_GROUPS[i] == selectedGroup) {
+                current = i;
+                break;
+            }
+        }
+        int index = (current + delta + SELECTABLE_ACCESSORY_GROUPS.length)
+                % SELECTABLE_ACCESSORY_GROUPS.length;
+        selectedGroup = SELECTABLE_ACCESSORY_GROUPS[index];
         prefs.edit().putString("calibration_group", selectedGroup.id).apply();
         updateCalibrationText();
     }
@@ -467,7 +484,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.6.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.7.json");
         });
     }
 
