@@ -74,6 +74,18 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile float modelBoundsTop;
     private volatile float modelBoundsBottom;
     private volatile boolean modelBoundsValid;
+    private float frameDeltaSeconds = 1.0f / 60.0f;
+    private boolean ahogeMotionInitialized;
+    private float previousAhogeRootX;
+    private float previousAhogeRootY;
+    private float previousAhogeHeadAngle;
+    private float ahogeLagX;
+    private float ahogeLagY;
+    private float ahogeLagAngle;
+    private float ahogeLagVelocityX;
+    private float ahogeLagVelocityY;
+    private float ahogeLagAngularVelocity;
+    private volatile boolean ahogeMotionResetRequested = true;
 
     SenRenderer(Context context, Listener listener) {
         this.context = context.getApplicationContext();
@@ -96,10 +108,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         float translationLimit = 0.9f + 0.5f * stageScale;
         stageTranslateX = Math.max(-translationLimit, Math.min(translationLimit, translateX));
         stageTranslateY = Math.max(-translationLimit, Math.min(translationLimit, translateY));
+        // Stage gestures are camera/layout changes, not character acceleration.
+        ahogeMotionResetRequested = true;
     }
 
     void setOverlayCalibration(OverlayCalibration calibration) {
         overlayCalibration = calibration == null ? OverlayCalibration.defaults() : calibration;
+        ahogeMotionResetRequested = true;
     }
 
     void setCompositeTestMotion(CompositeTestMotion motion) {
@@ -109,6 +124,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     void setStaticMode(boolean enabled) {
         staticMode = enabled;
+        ahogeMotionResetRequested = true;
         if (model != null) model.setStaticMode(enabled);
         if (overlayModel != null) overlayModel.setStaticMode(enabled);
     }
@@ -126,17 +142,28 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? "maid_face_mesh_three_pin_one_way_carriers"
+                    ? "maid_head_constrained_ear_pair_and_sen_ahoge_root_lock"
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("sen_rigid_parameter_drive", false);
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "face_mesh_top_center_pin_independent_from_draw_layer")
-                    .put("ear_fins_screen_left", "face_mesh_screen_left_pin_independent_from_draw_layer")
-                    .put("ear_fins_screen_right", "face_mesh_screen_right_pin_independent_from_draw_layer")
+                    .put("ahoge", "sen_root_anchor_locked_to_maid_head_with_tip_only_spring")
+                    .put("ear_fins_screen_left", "damped_face_pin_with_pair_expansion_limit")
+                    .put("ear_fins_screen_right", "damped_face_pin_with_pair_expansion_limit")
                     .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
+            root.put("ear_pair_constraint", new JSONObject()
+                    .put("horizontal_local_response", .28)
+                    .put("vertical_local_response", .60)
+                    .put("maximum_spacing_over_rigid_pose", 1.03)
+                    .put("narrowing_allowed", true));
+            root.put("ahoge_root_lock", new JSONObject()
+                    .put("root_source", "Sen ArtMesh151 vertex 8 barycentric anchor")
+                    .put("root_physics_weight", 0)
+                    .put("locked_root_zone_fraction", .10)
+                    .put("secondary_motion", "smooth_tip_weighted_velocity_spring")
+                    .put("stage_gesture_drives_physics", false));
             root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
             root.put("ear_neutral_pose_policy", "inherit_v0.1.12_pair_projection_identity_offsets");
             root.put("ear_layer_policy", "independent_material_skinning_section_slot_per_side");
@@ -168,7 +195,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.16-face-mesh-pin-carriers";
+            return "0.1.17-root-lock-spacing-constraint";
         }
     }
 
@@ -326,6 +353,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         float delta = lastFrameNanos == 0L ? 1.0f / 60.0f
                 : Math.min(0.05f, (now - lastFrameNanos) / 1_000_000_000.0f);
         lastFrameNanos = now;
+        frameDeltaSeconds = delta;
 
         try {
             model.update(delta);
@@ -452,16 +480,70 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private void applyMaidEarCarrierMotion(boolean screenLeft,
                                            CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
-        applyMaidHeadPinMotion(CompositeOverlayGroup.EAR_FINS, screenLeft,
-                accessoryProjection, .65f, .78f, 1.22f);
+        float[] leftNow = triangleToClip(model, maidProjection,
+                model.currentHeadPinTriangle(CompositeOverlayGroup.EAR_FINS, true));
+        float[] leftNeutral = triangleToClip(model, maidProjection,
+                model.neutralHeadPinTriangle(CompositeOverlayGroup.EAR_FINS, true));
+        float[] rightNow = triangleToClip(model, maidProjection,
+                model.currentHeadPinTriangle(CompositeOverlayGroup.EAR_FINS, false));
+        float[] rightNeutral = triangleToClip(model, maidProjection,
+                model.neutralHeadPinTriangle(CompositeOverlayGroup.EAR_FINS, false));
+        Similarity2D grossHeadMotion = currentGrossHeadMotion(.65f, .78f, 1.22f);
+        if (leftNow == null || leftNeutral == null || rightNow == null
+                || rightNeutral == null || grossHeadMotion == null) return;
+
+        float leftNeutralX = triangleCenterX(leftNeutral);
+        float leftNeutralY = triangleCenterY(leftNeutral);
+        float rightNeutralX = triangleCenterX(rightNeutral);
+        float rightNeutralY = triangleCenterY(rightNeutral);
+        float[] rigidLeft = grossHeadMotion.transformPoint(leftNeutralX, leftNeutralY);
+        float[] rigidRight = grossHeadMotion.transformPoint(rightNeutralX, rightNeutralY);
+
+        // Side-face deformation is useful, but the face surface stretches much more than an ear
+        // root should. Keep a small amount of horizontal parallax and more vertical correction.
+        float desiredLeftX = rigidLeft[0]
+                + (triangleCenterX(leftNow) - rigidLeft[0]) * .28f;
+        float desiredLeftY = rigidLeft[1]
+                + (triangleCenterY(leftNow) - rigidLeft[1]) * .60f;
+        float desiredRightX = rigidRight[0]
+                + (triangleCenterX(rightNow) - rigidRight[0]) * .28f;
+        float desiredRightY = rigidRight[1]
+                + (triangleCenterY(rightNow) - rigidRight[1]) * .60f;
+
+        // Perspective may bring the fins closer together, but may never stretch their roots
+        // farther apart than the rigid head pose plus a tiny tolerance.
+        float rigidDx = rigidRight[0] - rigidLeft[0];
+        float rigidDy = rigidRight[1] - rigidLeft[1];
+        float desiredDx = desiredRightX - desiredLeftX;
+        float desiredDy = desiredRightY - desiredLeftY;
+        float rigidDistance = (float) Math.hypot(rigidDx, rigidDy);
+        float desiredDistance = (float) Math.hypot(desiredDx, desiredDy);
+        float maximumDistance = rigidDistance * 1.03f;
+        if (desiredDistance > maximumDistance && desiredDistance > 1e-6f) {
+            float centerX = (desiredLeftX + desiredRightX) * .5f;
+            float centerY = (desiredLeftY + desiredRightY) * .5f;
+            float factor = maximumDistance / desiredDistance;
+            desiredDx *= factor;
+            desiredDy *= factor;
+            desiredLeftX = centerX - desiredDx * .5f;
+            desiredLeftY = centerY - desiredDy * .5f;
+            desiredRightX = centerX + desiredDx * .5f;
+            desiredRightY = centerY + desiredDy * .5f;
+        }
+
+        Similarity2D pinnedMotion = grossHeadMotion.mappingPoint(
+                screenLeft ? leftNeutralX : rightNeutralX,
+                screenLeft ? leftNeutralY : rightNeutralY,
+                screenLeft ? desiredLeftX : desiredRightX,
+                screenLeft ? desiredLeftY : desiredRightY);
+        overlayModel.applyClipTransform(accessoryProjection, pinnedMotion.toMatrix());
     }
 
     private void applyMaidCarrierMotion(CompositeOverlayGroup group,
                                         CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
         if (group == CompositeOverlayGroup.AHOGE) {
-            applyMaidHeadPinMotion(group, true, accessoryProjection,
-                    .85f, .70f, 1.35f);
+            applyMaidAhogeRootMotion(accessoryProjection);
             return;
         }
         float[] mainNow = triangleToClip(model, maidProjection,
@@ -479,36 +561,123 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         overlayModel.applyClipTransform(accessoryProjection, maidMotion.toMatrix());
     }
 
-    /**
-     * Maps one local point on the maid's face mesh to its current position, while taking rotation
-     * and gently limited scale from the large stable head triangle. This supplies three distinct
-     * roots (ahoge/left fin/right fin) without letting a tiny local triangle rotate or resize an
-     * accessory unpredictably. The selected draw layer never participates in this calculation.
-     */
-    private void applyMaidHeadPinMotion(CompositeOverlayGroup group, boolean screenLeft,
-                                        CubismMatrix44 accessoryProjection,
-                                        float scaleResponse, float minimumScale,
-                                        float maximumScale) {
-        float[] pinNow = triangleToClip(model, maidProjection,
-                model.currentHeadPinTriangle(group, screenLeft));
-        float[] pinNeutral = triangleToClip(model, maidProjection,
-                model.neutralHeadPinTriangle(group, screenLeft));
+    private Similarity2D currentGrossHeadMotion(float scaleResponse,
+                                                float minimumScale,
+                                                float maximumScale) {
         float[] headNow = triangleToClip(model, maidProjection,
                 model.currentCarrierTriangle(CompositeOverlayGroup.EAR_FINS));
         float[] headNeutral = triangleToClip(model, maidProjection,
                 model.neutralCarrierTriangle(CompositeOverlayGroup.EAR_FINS));
-        if (pinNow == null || pinNeutral == null || headNow == null || headNeutral == null) return;
-
-        Similarity2D grossHeadMotion = Similarity2D.betweenTriangle(
+        if (headNow == null || headNeutral == null) return null;
+        return Similarity2D.betweenTriangle(
                         headNeutral, headNow, .50f, 1.80f)
                 .withScaleResponse(scaleResponse, minimumScale, maximumScale);
+    }
+
+    /** Locks the actual Sen root anchor to the maid head, then adds physics only past the root. */
+    private void applyMaidAhogeRootMotion(CubismMatrix44 accessoryProjection) {
+        float[] pinNow = triangleToClip(model, maidProjection,
+                model.currentHeadPinTriangle(CompositeOverlayGroup.AHOGE, true));
+        float[] pinNeutral = triangleToClip(model, maidProjection,
+                model.neutralHeadPinTriangle(CompositeOverlayGroup.AHOGE, true));
+        Similarity2D grossHeadMotion = currentGrossHeadMotion(.85f, .70f, 1.35f);
+        float[] donorRootNow = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.currentAhogeRootPoint());
+        float[] donorRootNeutral = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.neutralAhogeRootPoint());
+        if (pinNow == null || pinNeutral == null || grossHeadMotion == null
+                || donorRootNow == null || donorRootNeutral == null) return;
+
         float neutralX = triangleCenterX(pinNeutral);
         float neutralY = triangleCenterY(pinNeutral);
-        float currentX = triangleCenterX(pinNow);
-        float currentY = triangleCenterY(pinNow);
-        Similarity2D pinnedMotion = grossHeadMotion.mappingPoint(
-                neutralX, neutralY, currentX, currentY);
-        overlayModel.applyClipTransform(accessoryProjection, pinnedMotion.toMatrix());
+        float[] rigidPin = grossHeadMotion.transformPoint(neutralX, neutralY);
+        float targetPinX = rigidPin[0]
+                + (triangleCenterX(pinNow) - rigidPin[0]) * .12f;
+        float targetPinY = rigidPin[1]
+                + (triangleCenterY(pinNow) - rigidPin[1]) * .58f;
+
+        // Preserve the user's neutral calibration as a head-local bind offset. Mapping the actual
+        // current donor root (rather than the maid pin) cancels any root drift from donor physics.
+        float bindOffsetX = donorRootNeutral[0] - neutralX;
+        float bindOffsetY = donorRootNeutral[1] - neutralY;
+        float transformedOffsetX = grossHeadMotion.a * bindOffsetX
+                - grossHeadMotion.b * bindOffsetY;
+        float transformedOffsetY = grossHeadMotion.b * bindOffsetX
+                + grossHeadMotion.a * bindOffsetY;
+        float targetRootX = targetPinX + transformedOffsetX;
+        float targetRootY = targetPinY + transformedOffsetY;
+        Similarity2D rootLockedMotion = grossHeadMotion.mappingPoint(
+                donorRootNow[0], donorRootNow[1], targetRootX, targetRootY);
+        overlayModel.applyClipTransform(accessoryProjection, rootLockedMotion.toMatrix());
+
+        applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
+                grossHeadMotion.angleRadians());
+    }
+
+    private void applyAhogeSecondaryMotion(CubismMatrix44 accessoryProjection,
+                                           float rootX, float rootY, float headAngle) {
+        float dt = Math.max(1.0f / 240.0f, Math.min(.05f, frameDeltaSeconds));
+        if (staticMode || ahogeMotionResetRequested || !ahogeMotionInitialized) {
+            ahogeMotionInitialized = true;
+            ahogeMotionResetRequested = false;
+            previousAhogeRootX = rootX;
+            previousAhogeRootY = rootY;
+            previousAhogeHeadAngle = headAngle;
+            ahogeLagX = ahogeLagY = ahogeLagAngle = 0f;
+            ahogeLagVelocityX = ahogeLagVelocityY = ahogeLagAngularVelocity = 0f;
+            return;
+        }
+
+        float rootVelocityX = (rootX - previousAhogeRootX) / dt;
+        float rootVelocityY = (rootY - previousAhogeRootY) / dt;
+        float angularVelocity = wrapRadians(headAngle - previousAhogeHeadAngle) / dt;
+        previousAhogeRootX = rootX;
+        previousAhogeRootY = rootY;
+        previousAhogeHeadAngle = headAngle;
+
+        float targetLagX = clamp(-rootVelocityX * .045f, -.035f, .035f);
+        float targetLagY = clamp(-rootVelocityY * .040f, -.030f, .030f);
+        float targetLagAngle = clamp(-angularVelocity * .070f, -.14f, .14f);
+        float stiffness = 30f;
+        float damping = (float) Math.exp(-9f * dt);
+        ahogeLagVelocityX = (ahogeLagVelocityX
+                + (targetLagX - ahogeLagX) * stiffness * dt) * damping;
+        ahogeLagVelocityY = (ahogeLagVelocityY
+                + (targetLagY - ahogeLagY) * stiffness * dt) * damping;
+        ahogeLagAngularVelocity = (ahogeLagAngularVelocity
+                + (targetLagAngle - ahogeLagAngle) * stiffness * dt) * damping;
+        ahogeLagX += ahogeLagVelocityX * dt;
+        ahogeLagY += ahogeLagVelocityY * dt;
+        ahogeLagAngle += ahogeLagAngularVelocity * dt;
+
+        float[] localLag = clipVectorToModel(overlayModel, accessoryProjection,
+                ahogeLagX, ahogeLagY);
+        if (localLag != null) {
+            overlayModel.applyAhogeSecondaryMotion(
+                    localLag[0], localLag[1], ahogeLagAngle);
+        }
+    }
+
+    private float[] clipVectorToModel(SenLive2DModel target, CubismMatrix44 targetProjection,
+                                      float clipX, float clipY) {
+        target.copyMvpMatrix(targetProjection, interactionMvp);
+        float[] matrix = interactionMvp.getArray();
+        float determinant = matrix[0] * matrix[5] - matrix[4] * matrix[1];
+        if (Math.abs(determinant) < 1e-8f) return null;
+        return new float[]{
+                (matrix[5] * clipX - matrix[4] * clipY) / determinant,
+                (-matrix[1] * clipX + matrix[0] * clipY) / determinant
+        };
+    }
+
+    private static float wrapRadians(float value) {
+        while (value > Math.PI) value -= (float) (Math.PI * 2.0);
+        while (value < -Math.PI) value += (float) (Math.PI * 2.0);
+        return value;
+    }
+
+    private static float clamp(float value, float minimum, float maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
     }
 
     private static float triangleCenterX(float[] triangle) {
@@ -625,6 +794,14 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return new Similarity2D(a, b,
                     destinationX - a * sourceX + b * sourceY,
                     destinationY - b * sourceX - a * sourceY);
+        }
+
+        float[] transformPoint(float x, float y) {
+            return new float[]{a * x - b * y + tx, b * x + a * y + ty};
+        }
+
+        float angleRadians() {
+            return (float) Math.atan2(b, a);
         }
 
         float[] toMatrix() {
@@ -782,6 +959,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     private void releaseCurrentModel() {
         modelBoundsValid = false;
+        ahogeMotionInitialized = false;
+        ahogeMotionResetRequested = true;
         textures.releaseAll();
         if (model != null) {
             model.closeModel();

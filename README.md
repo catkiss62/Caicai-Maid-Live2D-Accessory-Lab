@@ -3,6 +3,19 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.17
+
+- Preserves the accepted v0.1.16 head carriers, chibi scaling, layer positions and all saved
+  calibration values. The verified tail path is unchanged.
+- Dampens face-surface parallax at each ear root and caps only excessive pair expansion at 103% of
+  the stable rigid-head spacing. Perspective narrowing remains allowed, so side turns can still
+  move the far fin behind the head instead of turning the pair into one rigid ornament.
+- Maps Sen's confirmed `ArtMesh151` root anchor to the maid head every frame, preserving the user's
+  neutral bind offset and cancelling root movement produced inside the donor model.
+- Keeps the nearest 10% of the six-mesh ahoge fully rigid, then smoothly raises secondary-motion
+  weight toward the tip. Head velocity and angular velocity drive a bounded damped spring only on
+  the flexible region; stage zoom/drag is explicitly excluded as a physics input.
+
 ## v0.1.16
 
 - Keeps the user-confirmed ahoge and ear-fin draw layers, but completely separates those occlusion

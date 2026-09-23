@@ -2137,6 +2137,51 @@ final class SenLive2DModel extends CubismUserModel {
         }
     }
 
+    /**
+     * Adds secondary motion after the native model has updated. The confirmed root and its nearby
+     * vertices receive zero weight; influence rises smoothly towards the tip, so the renderer can
+     * lock the root exactly while the rest of the six-mesh ahoge bends and trails behind motion.
+     * The next Cubism update recreates native vertices, so this never accumulates frame to frame.
+     */
+    void applyAhogeSecondaryMotion(float offsetX, float offsetY, float angleRadians) {
+        if (!hasCompleteAhogeAnchor() || model == null) return;
+        float[] root = ahogeRootAnchor.currentPoint(model);
+        if (root == null) return;
+        Set<Integer> candidates = collectExistingDrawables(AHOGE_DRAWABLE_IDS);
+        float maximumDistance = 0f;
+        for (int index : candidates) {
+            if (!isDrawableVisible(index)) continue;
+            float[] vertices = model.getDrawableVertices(index);
+            for (int i = 0; i + 1 < vertices.length; i += 2) {
+                maximumDistance = Math.max(maximumDistance, (float) Math.hypot(
+                        vertices[i] - root[0], vertices[i + 1] - root[1]));
+            }
+        }
+        if (maximumDistance < 1e-5f) return;
+
+        float rootZone = maximumDistance * .10f;
+        float flexibleLength = Math.max(1e-5f, maximumDistance - rootZone);
+        for (int index : candidates) {
+            if (!isDrawableVisible(index)) continue;
+            float[] vertices = model.getDrawableVertices(index);
+            for (int i = 0; i + 1 < vertices.length; i += 2) {
+                float dx = vertices[i] - root[0];
+                float dy = vertices[i + 1] - root[1];
+                float distance = (float) Math.hypot(dx, dy);
+                float t = Math.max(0f, Math.min(1f,
+                        (distance - rootZone) / flexibleLength));
+                // Smoothstep prevents a visible hinge where the locked root zone ends.
+                float weight = t * t * (3f - 2f * t);
+                if (weight <= 0f) continue;
+                float angle = angleRadians * weight;
+                float cos = (float) Math.cos(angle);
+                float sin = (float) Math.sin(angle);
+                vertices[i] = root[0] + dx * cos - dy * sin + offsetX * weight;
+                vertices[i + 1] = root[1] + dx * sin + dy * cos + offsetY * weight;
+            }
+        }
+    }
+
     private void captureReferenceDrawableBounds() {
         float left = Float.POSITIVE_INFINITY;
         float right = Float.NEGATIVE_INFINITY;
