@@ -94,6 +94,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private final long[] geometryFrames = new long[2];
     private final float[] maximumEarCorrection = new float[2];
     private float maximumEarSharedShift;
+    private float maximumAhogeFlexAngle;
     private final float[] maximumRootCorrection = new float[2];
     private float lastEarBeforeSpan;
     private float lastEarAfterSpan;
@@ -163,7 +164,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             float x = 2f * screenX / surfaceWidth - 1f;
             float y = 1f - 2f * screenY / surfaceHeight;
             // Equal physical pick radius on both axes, even on a tall screen.
-            float radius = 36f * 2f / Math.min(surfaceWidth, surfaceHeight);
+            float radius = 18f * 2f / Math.min(surfaceWidth, surfaceHeight);
             JSONObject point = model.pickMaidHairPoint(maidProjection, x, y, radius);
             if (point == null) {
                 listener.onStatus("没有点中顶部头发，请放大人物后点呆毛接入的位置");
@@ -214,6 +215,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("ear_shared_shift_over_neutral_span", .07)
                     .put("root_to_hair_target_before_clip", lastRootBeforeGap)
                     .put("root_to_hair_target_after_clip", lastRootCorrection)
+                    .put("ahoge_flex_angle_degrees", (float) Math.toDegrees(ahogeLagAngle))
+                    .put("maximum_ahoge_flex_angle_degrees", (float) Math.toDegrees(maximumAhogeFlexAngle))
                     .put("maximum_root_gap_baseline_clip", maximumRootCorrection[0])
                     .put("maximum_root_gap_new_clip", maximumRootCorrection[1])
                     .put("near_root_vertex_correction_model", 0)
@@ -786,7 +789,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         float[] rootBefore = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.currentAhogeRootPoint());
         if (targetRoot == null || rootBefore == null) {
-            ahogeHairFallbackFrames++;
+            if (hairPoint != null) ahogeHairFallbackFrames++;
             return; // Before user picks, keep the proven v0.1.16 motion and neutral position.
         }
         float targetRootX = targetRoot[0], targetRootY = targetRoot[1];
@@ -846,8 +849,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 lastRootCorrection = (float) Math.hypot(
                         targetX - rootAfter[0], targetY - rootAfter[1]);
                 lastRootBeforeGap = lastRootCorrection;
-                maximumRootCorrection[0] = Math.max(
-                        maximumRootCorrection[0], lastRootCorrection);
+                if (!geometryConstraintEnabled) {
+                    maximumRootCorrection[0] = Math.max(
+                            maximumRootCorrection[0], lastRootCorrection);
+                }
             }
         }
     }
@@ -889,6 +894,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         ahogeLagX += ahogeLagVelocityX * dt;
         ahogeLagY += ahogeLagVelocityY * dt;
         ahogeLagAngle += ahogeLagAngularVelocity * dt;
+        maximumAhogeFlexAngle = Math.max(maximumAhogeFlexAngle, Math.abs(ahogeLagAngle));
 
         float[] localLag = clipVectorToModel(overlayModel, accessoryProjection,
                 ahogeLagX, ahogeLagY);
