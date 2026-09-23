@@ -54,16 +54,15 @@ final class SenLive2DModel extends CubismUserModel {
     private static final String[] MAIN_TWIN_TAIL_PART_IDS = {
             "Part48", "Part49", "Part56"
     };
-    // Two-point frames used by the screen-space attachment solver.  The first point is the
-    // attachment origin and the second point supplies head/body rotation and scale.  Use rigid
-    // character parts rather than an accessory's own vertices so ahoge, ear and tail physics are
-    // not cancelled by the correction pass.
+    // The head accessories deliberately do not use a two-point frame: the models' former second
+    // points were authored ornaments rather than rigid head landmarks. Part25 is used only as a
+    // stable one-point face origin for the independent ahoge-root translation below.
     private static final String[] MAIN_HEAD_ORIGIN_PART_IDS = {"Part25"};
-    private static final String[] MAIN_HEAD_DIRECTION_PART_IDS = {"Part9"};
+    // The confirmed tail attachment still uses a two-point body frame. The first point is the
+    // attachment origin and the second supplies body rotation and scale without cancelling the
+    // tail mesh's own swing.
     private static final String[] MAIN_TAIL_ORIGIN_PART_IDS = {"Part29"};
     private static final String[] MAIN_TAIL_DIRECTION_PART_IDS = {"Part26"};
-    private static final String[] ACCESSORY_HEAD_ORIGIN_PART_IDS = {"Part39", "Part51"};
-    private static final String[] ACCESSORY_HEAD_DIRECTION_PART_IDS = {"Part70"};
     private static final String[] ACCESSORY_TAIL_ORIGIN_PART_IDS = {"Part93"};
     private static final String[] ACCESSORY_TAIL_DIRECTION_PART_IDS = {"Part83"};
     private static final String[] ACCESSORY_TAIL_PART_IDS = {"Part239"};
@@ -154,6 +153,7 @@ final class SenLive2DModel extends CubismUserModel {
     private boolean pendingEarPhysicsActive;
     private AhogeAnchorPoint ahogeRootAnchor;
     private AhogeAnchorPoint ahogeDirectionAnchor;
+    private float[] neutralAhogeRoot;
     private float referenceDrawableLeft = -1.0f;
     private float referenceDrawableRight = 1.0f;
     private float referenceDrawableTop = 1.0f;
@@ -180,6 +180,7 @@ final class SenLive2DModel extends CubismUserModel {
     private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
     private final EnumMap<CompositeOverlayGroup, float[]> neutralAttachmentPoses =
             new EnumMap<>(CompositeOverlayGroup.class);
+    private float[] neutralHeadOrigin;
     private boolean staticMode;
     private CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private float compositeTestMotionElapsed;
@@ -403,14 +404,25 @@ final class SenLive2DModel extends CubismUserModel {
         CompositeTestMotion active = compositeTestMotion;
         float localTime = compositeTestMotionElapsed;
         if (active == CompositeTestMotion.AUTO) {
-            int slot = ((int) (localTime / 4f)) % 3;
+            int slot = ((int) (localTime / 4f)) % 5;
             localTime %= 4f;
-            active = slot == 0 ? CompositeTestMotion.HEAD_SWEEP
-                    : slot == 1 ? CompositeTestMotion.BODY_SWEEP
+            active = slot == 0 ? CompositeTestMotion.HEAD_X_SWEEP
+                    : slot == 1 ? CompositeTestMotion.HEAD_Y_SWEEP
+                    : slot == 2 ? CompositeTestMotion.HEAD_Z_SWEEP
+                    : slot == 3 ? CompositeTestMotion.BODY_SWEEP
                     : CompositeTestMotion.ARM_SWEEP;
         }
         float wave = (float) Math.sin(localTime * Math.PI * .5);
-        if (active == CompositeTestMotion.HEAD_SWEEP) {
+        if (active == CompositeTestMotion.HEAD_X_SWEEP) {
+            setParameterCentered("ParamAngleX", wave);
+            setParameterCentered("ParamAngleX2", wave);
+        } else if (active == CompositeTestMotion.HEAD_Y_SWEEP) {
+            setParameterCentered("ParamAngleY", wave);
+            setParameterCentered("ParamAngleY2", wave);
+        } else if (active == CompositeTestMotion.HEAD_Z_SWEEP) {
+            setParameterCentered("ParamAngleZ", wave);
+            setParameterCentered("ParamAngleZ2", wave);
+        } else if (active == CompositeTestMotion.HEAD_SWEEP) {
             setParameterCentered("ParamAngleX", wave);
             setParameterCentered("ParamAngleX2", wave);
             setParameterCentered("ParamAngleY", wave * .45f);
@@ -707,28 +719,30 @@ final class SenLive2DModel extends CubismUserModel {
     private void captureNeutralAttachmentPoints() {
         if (model == null) return;
         neutralAttachmentPoses.clear();
-        for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
-            if (group == CompositeOverlayGroup.GLOBAL) continue;
-            float[] pose = currentAttachmentPose(group);
-            if (pose != null) neutralAttachmentPoses.put(group, pose.clone());
+        float[] tailPose = currentAttachmentPose(CompositeOverlayGroup.TAIL);
+        if (tailPose != null) {
+            neutralAttachmentPoses.put(CompositeOverlayGroup.TAIL, tailPose.clone());
         }
-        appendAppearanceDetail("双锚点挂件基准 " + neutralAttachmentPoses.size() + "/3");
+        neutralHeadOrigin = compositeRole == CompositeModelRole.RUBY_PRIMARY
+                ? currentHeadOriginPoint() : null;
+        neutralAhogeRoot = compositeRole == CompositeModelRole.SEN_OVERLAY
+                ? currentAhogeRootPoint() : null;
+        appendAppearanceDetail("尾巴双锚点基准 "
+                + (neutralAttachmentPoses.containsKey(CompositeOverlayGroup.TAIL) ? "1/1" : "0/1")
+                + (neutralHeadOrigin == null ? "" : " · Ruby主脸单点基准")
+                + (neutralAhogeRoot == null ? "" : " · 呆毛根部单点基准"));
     }
 
     float[] currentAttachmentPose(CompositeOverlayGroup group) {
-        if (model == null || group == null || group == CompositeOverlayGroup.GLOBAL) return null;
-        boolean tail = group == CompositeOverlayGroup.TAIL;
+        if (model == null || group != CompositeOverlayGroup.TAIL) return null;
         String[] originParts;
         String[] directionParts;
         if (compositeRole == CompositeModelRole.RUBY_PRIMARY) {
-            originParts = tail ? MAIN_TAIL_ORIGIN_PART_IDS : MAIN_HEAD_ORIGIN_PART_IDS;
-            directionParts = tail ? MAIN_TAIL_DIRECTION_PART_IDS
-                    : MAIN_HEAD_DIRECTION_PART_IDS;
+            originParts = MAIN_TAIL_ORIGIN_PART_IDS;
+            directionParts = MAIN_TAIL_DIRECTION_PART_IDS;
         } else {
-            originParts = tail ? ACCESSORY_TAIL_ORIGIN_PART_IDS
-                    : ACCESSORY_HEAD_ORIGIN_PART_IDS;
-            directionParts = tail ? ACCESSORY_TAIL_DIRECTION_PART_IDS
-                    : ACCESSORY_HEAD_DIRECTION_PART_IDS;
+            originParts = ACCESSORY_TAIL_ORIGIN_PART_IDS;
+            directionParts = ACCESSORY_TAIL_DIRECTION_PART_IDS;
         }
         float[] origin = centerOfVisibleOrAll(collectChildDrawables(originParts));
         float[] direction = centerOfVisibleOrAll(collectChildDrawables(directionParts));
@@ -743,6 +757,26 @@ final class SenLive2DModel extends CubismUserModel {
     float[] neutralAttachmentPose(CompositeOverlayGroup group) {
         float[] value = neutralAttachmentPoses.get(group);
         return value == null ? null : value.clone();
+    }
+
+    float[] currentHeadOriginPoint() {
+        if (model == null || compositeRole != CompositeModelRole.RUBY_PRIMARY) return null;
+        float[] value = centerOfVisibleOrAll(collectChildDrawables(MAIN_HEAD_ORIGIN_PART_IDS));
+        return value == null ? null : value.clone();
+    }
+
+    float[] neutralHeadOriginPoint() {
+        return neutralHeadOrigin == null ? null : neutralHeadOrigin.clone();
+    }
+
+    float[] currentAhogeRootPoint() {
+        if (model == null || ahogeRootAnchor == null) return null;
+        float[] value = ahogeRootAnchor.currentPoint(model);
+        return value == null ? null : value.clone();
+    }
+
+    float[] neutralAhogeRootPoint() {
+        return neutralAhogeRoot == null ? null : neutralAhogeRoot.clone();
     }
 
     float[] currentCompositeGroupCenter(CompositeOverlayGroup group) {

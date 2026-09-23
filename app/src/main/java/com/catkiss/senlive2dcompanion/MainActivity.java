@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v2_native_ears";
-    private static final String VERSION = "v0.1.9 · 头部原生参数跟随";
+    private static final String VERSION = "v0.1.10 · 呆毛根部绑定与大幅测试";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
             CompositeOverlayGroup.AHOGE,
@@ -184,9 +184,14 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
             updateSummary();
         });
         staticRow.addView(staticButton, weighted());
-        staticRow.addView(actionButton("头部摆动", () -> selectMotion(CompositeTestMotion.HEAD_SWEEP)), weighted());
-        staticRow.addView(actionButton("身体摆动", () -> selectMotion(CompositeTestMotion.BODY_SWEEP)), weighted());
+        staticRow.addView(actionButton("左右大幅", () -> selectMotion(CompositeTestMotion.HEAD_X_SWEEP)), weighted());
+        staticRow.addView(actionButton("上下大幅", () -> selectMotion(CompositeTestMotion.HEAD_Y_SWEEP)), weighted());
         panel.addView(staticRow);
+        LinearLayout headMotionRow = row();
+        headMotionRow.addView(actionButton("歪头大幅", () -> selectMotion(CompositeTestMotion.HEAD_Z_SWEEP)), weighted());
+        headMotionRow.addView(actionButton("综合头摆", () -> selectMotion(CompositeTestMotion.HEAD_SWEEP)), weighted());
+        headMotionRow.addView(actionButton("身体摆动", () -> selectMotion(CompositeTestMotion.BODY_SWEEP)), weighted());
+        panel.addView(headMotionRow);
         LinearLayout motionRow = row();
         motionRow.addView(actionButton("实时", () -> selectMotion(CompositeTestMotion.LIVE)), weighted());
         motionRow.addView(actionButton("自动巡检", () -> selectMotion(CompositeTestMotion.AUTO)), weighted());
@@ -484,7 +489,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.9.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.10.json");
         });
     }
 

@@ -3,6 +3,17 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.10
+
+- Leaves the now-confirmed ear-fin path unchanged: the complete native Sen ear rig continues to
+  follow Ruby through shared compatible head parameters, with no rigid frame or App-side mirror.
+- Corrects the ahoge independently with one root-point translation. Ruby `Part25` (face centre)
+  drives the confirmed Sen ahoge root, while all six ahoge meshes receive one identical delta so
+  tip bend and local physics remain intact.
+- Adds three full-range, single-axis head tests for left/right (`AngleX`), up/down (`AngleY`) and
+  tilt (`AngleZ`), while retaining the mixed head sweep. Auto inspection now visits all three axes.
+- Keeps every confirmed calibration value and the tail's verified body two-point binding unchanged.
+
 ## v0.1.9
 
 - Rolls back the unsuccessful v0.1.8 horizontal reflection and the v0.1.7 rigid correction for

@@ -34,9 +34,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private static final String TAG = "SenNativeCubism";
     // Ruby and Sen do not share one rigid head topology. Their former second head anchors were
     // actually authored accessories (Ruby's head ornament and Sen's maid headband), so using them
-    // as a two-point frame made the ahoge and ear fins turn opposite to the visible face. Keep the
-    // two head groups on the shared compatible parameter drive and only use the independently
-    // verified two-point correction for the tail's body frame.
+    // as a two-point frame made the accessories turn opposite to the visible face. Keep the ear
+    // pair on the verified compatible parameter drive, bind the ahoge by its confirmed root point,
+    // and reserve the independently verified two-point correction for the tail's body frame.
     private static final boolean TAIL_ATTACHMENT_ENABLED = true;
 
     private final Context context;
@@ -125,13 +125,16 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", TAIL_ATTACHMENT_ENABLED
-                    ? "tail_two_point_head_parameter_driven" : "parameter_driven");
+                    ? "tail_two_point_ahoge_root_point_ear_parameter_driven"
+                    : "head_accessory_drive_only");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "shared_parameter_drive_native_rig")
+                    .put("ahoge", "ruby_face_to_ahoge_root_translation")
                     .put("ear_fins", "shared_parameter_drive_native_rig")
                     .put("tail", "independent_body_frame_direct")
                     .put("combined_group", false));
+            root.put("head_test_motions", new org.json.JSONArray(Arrays.asList(
+                    "head_x_sweep", "head_y_sweep", "head_z_sweep", "head_sweep")));
             root.put("stage_transform", new JSONObject()
                     .put("scale", stageScale)
                     .put("x", stageTranslateX)
@@ -153,7 +156,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.9-head-native-drive";
+            return "0.1.10-ahoge-root-bind-head-tests";
         }
     }
 
@@ -346,8 +349,38 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 calibration.combinedX(group), calibration.combinedY(group));
         if (TAIL_ATTACHMENT_ENABLED && group == CompositeOverlayGroup.TAIL) {
             applyAttachmentCorrection(group, senGroupProjection);
+        } else if (group == CompositeOverlayGroup.AHOGE) {
+            applyAhogeRootCorrection(senGroupProjection);
         }
         overlayModel.drawSenGroup(senGroupProjection, group);
+    }
+
+    /**
+     * The ear rig already follows Ruby correctly through shared head parameters, but Sen's ahoge
+     * root has the opposite authored horizontal response. Bind only that root to Ruby's stable face
+     * centre with a clip-space translation. The whole six-mesh ahoge pass receives the same delta,
+     * so its tip bend and local physics are preserved and the ear projection is never touched.
+     */
+    private void applyAhogeRootCorrection(CubismMatrix44 accessoryProjection) {
+        if (model == null || overlayModel == null) return;
+        float[] mainNow = pointToClip(model, rubyProjection, model.currentHeadOriginPoint());
+        float[] mainNeutral = pointToClip(model, rubyProjection, model.neutralHeadOriginPoint());
+        float[] ahogeNow = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.currentAhogeRootPoint());
+        float[] ahogeNeutral = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.neutralAhogeRootPoint());
+        if (mainNow == null || mainNeutral == null || ahogeNow == null || ahogeNeutral == null) {
+            return;
+        }
+        float targetX = ahogeNeutral[0] + mainNow[0] - mainNeutral[0];
+        float targetY = ahogeNeutral[1] + mainNow[1] - mainNeutral[1];
+        float[] translation = {
+                1f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                targetX - ahogeNow[0], targetY - ahogeNow[1], 0f, 1f
+        };
+        overlayModel.applyClipTransform(accessoryProjection, translation);
     }
 
     private void drawEarFins() {
