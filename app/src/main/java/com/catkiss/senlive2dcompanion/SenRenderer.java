@@ -126,15 +126,15 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? "maid_material_hair_section_one_way_carriers"
+                    ? "maid_face_mesh_three_pin_one_way_carriers"
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("sen_rigid_parameter_drive", false);
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "fixed_top_hair_carrier_independent_from_draw_layer")
-                    .put("ear_fins_screen_left", "selected_front_material_section_screen_left")
-                    .put("ear_fins_screen_right", "selected_front_material_section_screen_right")
+                    .put("ahoge", "face_mesh_top_center_pin_independent_from_draw_layer")
+                    .put("ear_fins_screen_left", "face_mesh_screen_left_pin_independent_from_draw_layer")
+                    .put("ear_fins_screen_right", "face_mesh_screen_right_pin_independent_from_draw_layer")
                     .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
             root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
@@ -168,7 +168,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.15-material-hair-sections";
+            return "0.1.16-face-mesh-pin-carriers";
         }
     }
 
@@ -452,32 +452,22 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private void applyMaidEarCarrierMotion(boolean screenLeft,
                                            CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
-        int layerOffset = overlayCalibration.getLayerOffset(
-                CompositeOverlayGroup.EAR_FINS, screenLeft);
-        float[] mainNow = triangleToClip(model, maidProjection,
-                model.currentLayerCarrierTriangle(
-                        CompositeOverlayGroup.EAR_FINS, screenLeft, layerOffset));
-        float[] mainNeutral = triangleToClip(model, maidProjection,
-                model.neutralLayerCarrierTriangle(
-                        CompositeOverlayGroup.EAR_FINS, screenLeft, layerOffset));
-        if (mainNow == null || mainNeutral == null) return;
-        Similarity2D maidMotion = Similarity2D.betweenTriangle(
-                mainNeutral, mainNow, .50f, 1.80f);
-        overlayModel.applyClipTransform(accessoryProjection, maidMotion.toMatrix());
+        applyMaidHeadPinMotion(CompositeOverlayGroup.EAR_FINS, screenLeft,
+                accessoryProjection, .65f, .78f, 1.22f);
     }
 
     private void applyMaidCarrierMotion(CompositeOverlayGroup group,
                                         CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
-        int layerOffset = overlayCalibration.getLayerOffset(group, true);
+        if (group == CompositeOverlayGroup.AHOGE) {
+            applyMaidHeadPinMotion(group, true, accessoryProjection,
+                    .85f, .70f, 1.35f);
+            return;
+        }
         float[] mainNow = triangleToClip(model, maidProjection,
-                group == CompositeOverlayGroup.AHOGE
-                        ? model.currentLayerCarrierTriangle(group, true, layerOffset)
-                        : model.currentCarrierTriangle(group));
+                model.currentCarrierTriangle(group));
         float[] mainNeutral = triangleToClip(model, maidProjection,
-                group == CompositeOverlayGroup.AHOGE
-                        ? model.neutralLayerCarrierTriangle(group, true, layerOffset)
-                        : model.neutralCarrierTriangle(group));
+                model.neutralCarrierTriangle(group));
         if (mainNow == null || mainNeutral == null) return;
 
         // Apply the maid carrier's observed neutral-to-current motion directly to the already
@@ -487,6 +477,46 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         Similarity2D maidMotion = Similarity2D.betweenTriangle(
                 mainNeutral, mainNow, .50f, 1.80f);
         overlayModel.applyClipTransform(accessoryProjection, maidMotion.toMatrix());
+    }
+
+    /**
+     * Maps one local point on the maid's face mesh to its current position, while taking rotation
+     * and gently limited scale from the large stable head triangle. This supplies three distinct
+     * roots (ahoge/left fin/right fin) without letting a tiny local triangle rotate or resize an
+     * accessory unpredictably. The selected draw layer never participates in this calculation.
+     */
+    private void applyMaidHeadPinMotion(CompositeOverlayGroup group, boolean screenLeft,
+                                        CubismMatrix44 accessoryProjection,
+                                        float scaleResponse, float minimumScale,
+                                        float maximumScale) {
+        float[] pinNow = triangleToClip(model, maidProjection,
+                model.currentHeadPinTriangle(group, screenLeft));
+        float[] pinNeutral = triangleToClip(model, maidProjection,
+                model.neutralHeadPinTriangle(group, screenLeft));
+        float[] headNow = triangleToClip(model, maidProjection,
+                model.currentCarrierTriangle(CompositeOverlayGroup.EAR_FINS));
+        float[] headNeutral = triangleToClip(model, maidProjection,
+                model.neutralCarrierTriangle(CompositeOverlayGroup.EAR_FINS));
+        if (pinNow == null || pinNeutral == null || headNow == null || headNeutral == null) return;
+
+        Similarity2D grossHeadMotion = Similarity2D.betweenTriangle(
+                        headNeutral, headNow, .50f, 1.80f)
+                .withScaleResponse(scaleResponse, minimumScale, maximumScale);
+        float neutralX = triangleCenterX(pinNeutral);
+        float neutralY = triangleCenterY(pinNeutral);
+        float currentX = triangleCenterX(pinNow);
+        float currentY = triangleCenterY(pinNow);
+        Similarity2D pinnedMotion = grossHeadMotion.mappingPoint(
+                neutralX, neutralY, currentX, currentY);
+        overlayModel.applyClipTransform(accessoryProjection, pinnedMotion.toMatrix());
+    }
+
+    private static float triangleCenterX(float[] triangle) {
+        return (triangle[0] + triangle[2] + triangle[4]) / 3f;
+    }
+
+    private static float triangleCenterY(float[] triangle) {
+        return (triangle[1] + triangle[3] + triangle[5]) / 3f;
     }
 
     private float[] triangleToClip(SenLive2DModel target,
@@ -578,6 +608,23 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             float tx = destinationCenterX - a * sourceCenterX + b * sourceCenterY;
             float ty = destinationCenterY - b * sourceCenterX - a * sourceCenterY;
             return new Similarity2D(a, b, tx, ty);
+        }
+
+        Similarity2D withScaleResponse(float response, float minimum, float maximum) {
+            float scale = (float) Math.hypot(a, b);
+            if (!Float.isFinite(scale) || scale < 1e-6f) {
+                return new Similarity2D(1f, 0f, tx, ty);
+            }
+            float adjusted = 1f + (scale - 1f) * Math.max(0f, Math.min(1f, response));
+            adjusted = Math.max(minimum, Math.min(maximum, adjusted));
+            return new Similarity2D(a * adjusted / scale, b * adjusted / scale, tx, ty);
+        }
+
+        Similarity2D mappingPoint(float sourceX, float sourceY,
+                                  float destinationX, float destinationY) {
+            return new Similarity2D(a, b,
+                    destinationX - a * sourceX + b * sourceY,
+                    destinationY - b * sourceX - a * sourceY);
         }
 
         float[] toMatrix() {

@@ -227,6 +227,9 @@ final class SenLive2DModel extends CubismUserModel {
     private MeshAnchorFrame headCarrierFrame;
     private MeshAnchorFrame bodyCarrierFrame;
     private MeshAnchorFrame ahogeHairCarrierFrame;
+    private MeshAnchorFrame ahogeHeadPinFrame;
+    private MeshAnchorFrame screenLeftEarHeadPinFrame;
+    private MeshAnchorFrame screenRightEarHeadPinFrame;
     private MeshAnchorFrame screenLeftBowCarrierFrame;
     private MeshAnchorFrame screenRightBowCarrierFrame;
     private final List<MaidLayerGroup> maidLayerGroups = new ArrayList<>();
@@ -960,6 +963,12 @@ final class SenLive2DModel extends CubismUserModel {
                         ? JSONObject.NULL : bodyCarrierFrame.toJson())
                 .put("ahoge_top_hair", ahogeHairCarrierFrame == null
                         ? JSONObject.NULL : ahogeHairCarrierFrame.toJson())
+                .put("ahoge_head_pin", ahogeHeadPinFrame == null
+                        ? JSONObject.NULL : ahogeHeadPinFrame.toJson())
+                .put("screen_left_ear_head_pin", screenLeftEarHeadPinFrame == null
+                        ? JSONObject.NULL : screenLeftEarHeadPinFrame.toJson())
+                .put("screen_right_ear_head_pin", screenRightEarHeadPinFrame == null
+                        ? JSONObject.NULL : screenRightEarHeadPinFrame.toJson())
                 .put("screen_left_bow", screenLeftBowCarrierFrame == null
                         ? JSONObject.NULL : screenLeftBowCarrierFrame.toJson())
                 .put("screen_right_bow", screenRightBowCarrierFrame == null
@@ -1002,27 +1011,22 @@ final class SenLive2DModel extends CubismUserModel {
                                          boolean screenLeft, int offset)
             throws JSONException {
         MaidLayerSlot slot = resolveMaidLayerSlot(group, screenLeft, offset);
-        MeshAnchorFrame carrier = carrierFrameForLayer(group, screenLeft, offset);
+        MeshAnchorFrame carrier = headPinFrame(group, screenLeft);
         int base = group == CompositeOverlayGroup.AHOGE
                 ? defaultAhogeLayerSlotIndex : defaultEarLayerSlotIndex;
         int index = slot == null ? -1 : maidLayerSlots.indexOf(slot);
-        MaidLayerGroup carrierGroup = null;
-        if (slot != null && offset != 0 && group == CompositeOverlayGroup.EAR_FINS) {
-            carrierGroup = slot.front == null ? slot.behind : slot.front;
-        }
         return new JSONObject()
                 .put("requested_offset", offset)
                 .put("base_slot_index", base)
                 .put("resolved_slot_index", index)
                 .put("threshold", slot == null ? JSONObject.NULL : slot.threshold)
                 .put("slot_label", slot == null ? "未解析" : slot.label)
-                .put("carrier_rule", group == CompositeOverlayGroup.AHOGE
-                        ? "固定绑定顶部头发；与绘制插层解耦" : "当前插层前侧相邻素材节")
-                .put("carrier_compatibility_zero", offset == 0)
-                .put("carrier_group", carrierGroup == null
-                        ? (group == CompositeOverlayGroup.AHOGE
-                        ? "顶部头发" : "v0.1.13_对应侧蝴蝶结")
-                        : carrierGroup.label)
+                .put("carrier_rule", "绘制插层与运动载体完全解耦；局部定位点+稳定头部转角")
+                .put("carrier_compatibility_zero", true)
+                .put("carrier_group", group == CompositeOverlayGroup.AHOGE
+                        ? "女仆脸部网格_顶部中央定位点"
+                        : (screenLeft ? "女仆脸部网格_画面左定位点"
+                        : "女仆脸部网格_画面右定位点"))
                 .put("carrier_anchor", carrier == null
                         ? JSONObject.NULL : carrier.toJson());
     }
@@ -1055,6 +1059,18 @@ final class SenLive2DModel extends CubismUserModel {
         bodyCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
                 model, collectChildDrawables(bodyParts));
         if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
+            // Draw order and motion attachment are separate concerns. All three head accessories
+            // are pinned to different places on the maid's large face mesh, whose deformation is
+            // reliable during authored head turns. Local hair material sections are still used
+            // for occlusion only; several of them barely move or belong to only one screen side.
+            if (headCarrierFrame != null) {
+                ahogeHeadPinFrame = MeshAnchorFrame.fromTriangleNearNormalizedPoint(
+                        model, headCarrierFrame.drawableIndex, .50f, .86f);
+                screenLeftEarHeadPinFrame = MeshAnchorFrame.fromTriangleNearNormalizedPoint(
+                        model, headCarrierFrame.drawableIndex, .12f, .76f);
+                screenRightEarHeadPinFrame = MeshAnchorFrame.fromTriangleNearNormalizedPoint(
+                        model, headCarrierFrame.drawableIndex, .88f, .76f);
+            }
             ahogeHairCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
                     model, collectChildDrawables(MAID_TOP_HAIR_PART_IDS));
             MeshAnchorFrame firstBow = MeshAnchorFrame.fromLargestStableTriangle(
@@ -1079,6 +1095,12 @@ final class SenLive2DModel extends CubismUserModel {
                 + (bodyCarrierFrame == null ? "缺失" : bodyCarrierFrame.drawableId)
                 + (ahogeHairCarrierFrame == null ? "" : " · 呆毛顶部头发 "
                 + ahogeHairCarrierFrame.drawableId)
+                + (ahogeHeadPinFrame == null ? "" : " · 呆毛头部定位点 "
+                + ahogeHeadPinFrame.drawableId)
+                + (screenLeftEarHeadPinFrame == null ? "" : " · 左耳鳍头部定位点 "
+                + screenLeftEarHeadPinFrame.drawableId)
+                + (screenRightEarHeadPinFrame == null ? "" : " · 右耳鳍头部定位点 "
+                + screenRightEarHeadPinFrame.drawableId)
                 + (screenLeftBowCarrierFrame == null ? "" : " · 画面左蝴蝶结 "
                 + screenLeftBowCarrierFrame.drawableId)
                 + (screenRightBowCarrierFrame == null ? "" : " · 画面右蝴蝶结 "
@@ -1112,6 +1134,24 @@ final class SenLive2DModel extends CubismUserModel {
                 ? screenLeftBowCarrierFrame : screenRightBowCarrierFrame;
         return frame == null ? neutralCarrierTriangle(CompositeOverlayGroup.EAR_FINS)
                 : frame.neutralTriangle();
+    }
+
+    float[] currentHeadPinTriangle(CompositeOverlayGroup group, boolean screenLeft) {
+        MeshAnchorFrame frame = headPinFrame(group, screenLeft);
+        return frame == null ? currentCarrierTriangle(group) : frame.currentTriangle(model);
+    }
+
+    float[] neutralHeadPinTriangle(CompositeOverlayGroup group, boolean screenLeft) {
+        MeshAnchorFrame frame = headPinFrame(group, screenLeft);
+        return frame == null ? neutralCarrierTriangle(group) : frame.neutralTriangle();
+    }
+
+    private MeshAnchorFrame headPinFrame(CompositeOverlayGroup group, boolean screenLeft) {
+        if (group == CompositeOverlayGroup.AHOGE) return ahogeHeadPinFrame;
+        if (group == CompositeOverlayGroup.EAR_FINS) {
+            return screenLeft ? screenLeftEarHeadPinFrame : screenRightEarHeadPinFrame;
+        }
+        return null;
     }
 
     float[] currentLayerCarrierTriangle(CompositeOverlayGroup group,
@@ -2533,6 +2573,72 @@ final class SenLive2DModel extends CubismUserModel {
                 }
             }
             return bestVisible != null ? bestVisible : bestAny;
+        }
+
+        /**
+         * Selects a fixed triangle near a normalized point on one known stable drawable. The
+         * triangle is used only as a positional pin; rotation and scale come from the large head
+         * carrier, avoiding noisy rotation from small facial triangles.
+         */
+        static MeshAnchorFrame fromTriangleNearNormalizedPoint(
+                com.live2d.sdk.cubism.framework.model.CubismModel target,
+                int drawable, float normalizedX, float normalizedY) {
+            if (target == null || drawable < 0 || drawable >= target.getDrawableCount()) {
+                return null;
+            }
+            float[] vertices = target.getDrawableVertices(drawable);
+            short[] indices = target.getDrawableVertexIndices(drawable);
+            if (vertices == null || vertices.length < 6 || indices == null) return null;
+            float minX = Float.POSITIVE_INFINITY;
+            float minY = Float.POSITIVE_INFINITY;
+            float maxX = Float.NEGATIVE_INFINITY;
+            float maxY = Float.NEGATIVE_INFINITY;
+            for (int i = 0; i + 1 < vertices.length; i += 2) {
+                minX = Math.min(minX, vertices[i]);
+                maxX = Math.max(maxX, vertices[i]);
+                minY = Math.min(minY, vertices[i + 1]);
+                maxY = Math.max(maxY, vertices[i + 1]);
+            }
+            float width = Math.max(1e-6f, maxX - minX);
+            float height = Math.max(1e-6f, maxY - minY);
+            float targetX = minX + width * Math.max(0f, Math.min(1f, normalizedX));
+            float targetY = minY + height * Math.max(0f, Math.min(1f, normalizedY));
+            MeshAnchorFrame best = null;
+            float bestScore = Float.POSITIVE_INFINITY;
+            for (int i = 0; i + 2 < indices.length; i += 3) {
+                int v1 = indices[i] & 0xffff;
+                int v2 = indices[i + 1] & 0xffff;
+                int v3 = indices[i + 2] & 0xffff;
+                if (!validVertex(vertices, v1) || !validVertex(vertices, v2)
+                        || !validVertex(vertices, v3)) continue;
+                float x1 = vertices[v1 * 2];
+                float y1 = vertices[v1 * 2 + 1];
+                float x2 = vertices[v2 * 2];
+                float y2 = vertices[v2 * 2 + 1];
+                float x3 = vertices[v3 * 2];
+                float y3 = vertices[v3 * 2 + 1];
+                float area2 = Math.abs((x2 - x1) * (y3 - y1)
+                        - (y2 - y1) * (x3 - x1));
+                if (area2 < 1e-8f) continue;
+                float centerX = (x1 + x2 + x3) / 3f;
+                float centerY = (y1 + y2 + y3) / 3f;
+                float dx = (centerX - targetX) / width;
+                float dy = (centerY - targetY) / height;
+                float longestEdge2 = Math.max(
+                        squaredDistance(x1, y1, x2, y2),
+                        Math.max(squaredDistance(x2, y2, x3, y3),
+                                squaredDistance(x3, y3, x1, y1)));
+                float shapeQuality = area2 * area2
+                        / Math.max(longestEdge2 * longestEdge2, 1e-12f);
+                float score = dx * dx + dy * dy + .0025f / Math.max(shapeQuality, .01f);
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = new MeshAnchorFrame(drawable,
+                            target.getDrawableId(drawable).getString(), v1, v2, v3,
+                            new float[]{x1, y1, x2, y2, x3, y3});
+                }
+            }
+            return best;
         }
 
         private static float squaredDistance(float x1, float y1, float x2, float y2) {

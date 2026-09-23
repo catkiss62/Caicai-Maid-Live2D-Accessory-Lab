@@ -3,6 +3,18 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.16
+
+- Keeps the user-confirmed ahoge and ear-fin draw layers, but completely separates those occlusion
+  choices from motion attachment. Changing a layer can no longer silently change the carrier.
+- Pins the ahoge and the two ear fins to three distinct points on the maid's original large face
+  mesh. Local pin translation supplies side-aware perspective movement; one stable head triangle
+  supplies rotation, avoiding the nearly static crown-hair carrier and the duplicated left-hair
+  carrier diagnosed in v0.1.15.
+- Limits inherited ear-fin scale and softens scale response so the maid's chibi/small action does
+  not shrink the fins excessively. Sen's native two-pulse fin dynamics remain local and intact.
+- Leaves the already verified tail body carrier and all saved scale/X/Y calibration untouched.
+
 ## v0.1.15
 
 - Separates draw order from motion attachment for the ahoge. It is always drawn immediately in
