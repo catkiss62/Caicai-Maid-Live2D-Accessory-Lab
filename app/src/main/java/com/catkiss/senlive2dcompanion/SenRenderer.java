@@ -594,8 +594,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         }
         // The width cap fixes excess separation. A side turn also carries both fins too far
         // toward the face's screen-facing side; move the pair a little in the opposite direction
-        // without changing its measured span. Read the actual face-side drift when available so
-        // the sign follows the rendered maid instead of assuming a parameter's sign convention.
+        // without changing its measured span. Keep the sign tied to the continuous head parameter.
+        // Face-mesh parallax crosses zero independently of the head angle; switching sign at a
+        // parallax threshold made the entire pair jump during a left/right sweep.
         float screenTurn = model.horizontalHeadTurnSigned();
         lastEarFaceParallax = 0f;
         Similarity2D grossHead = currentGrossHeadMotion(.65f, .78f, 1.22f);
@@ -607,9 +608,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     triangleCenterX(rightNeutral), triangleCenterY(rightNeutral));
             lastEarFaceParallax = (triangleCenterX(leftNow) + triangleCenterX(rightNow)
                     - rigidLeft[0] - rigidRight[0]) * .5f;
-            if (Math.abs(lastEarFaceParallax) > neutralSpan * .003f) {
-                screenTurn = Math.copySign(lastHeadTurn, lastEarFaceParallax);
-            }
         }
         lastEarScreenTurn = screenTurn;
         // Device feedback: the prior sign moved the fins further in the wrong screen direction.
