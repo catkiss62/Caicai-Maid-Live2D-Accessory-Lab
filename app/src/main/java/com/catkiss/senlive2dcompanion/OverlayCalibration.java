@@ -172,7 +172,7 @@ final class OverlayCalibration {
             return new Transform(1.24f, -.01f, -.29f, true, 0f, 0f, 5f);
         }
         if (group == CompositeOverlayGroup.TAIL) {
-            return new Transform(.96f, .02f, -.24f, true, 0f, 0f, 0f);
+            return new Transform(1.00f, .02f, -.24f, true, 0f, 0f, 0f);
         }
         return new Transform(1f, 0f, 0f, true, 0f, 0f, 0f);
     }

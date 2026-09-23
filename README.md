@@ -7,7 +7,7 @@ from Sen: ahoge, paired fish ear fins, and fish tail.
 
 - Uses the confirmed v0.1.6 device calibration as the neutral bind pose: ahoge
   `0.88/-0.03/-0.05`, native ear pair `1.24/-0.01/-0.29/+5°`, and tail
-  `0.96/+0.02/-0.24`, with global Y `+0.20`.
+  `1.00/+0.02/-0.24`, with global Y `+0.20`.
 - Attaches ahoge and ear fins through two independent filtered draw passes and two independent
   projection corrections. They follow the maid head frame without creating a combined drawable
   group; Sen's ahoge bend and native left/right ear twitch remain local to their own meshes.
