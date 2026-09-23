@@ -14,6 +14,10 @@
   `ear_screen_turn_signed`、`direction_to_head_axis_after_clip`，真机可直接判断方向和幅度。
 - 左右耳鳍图层默认偏移均设为 `-1`（用户导出校准确认），重置到该值；已有保存值继续使用。
   下一轮真机优先测试左右大幅的同向移动与呆毛下段连续性，再检查中立、歪头及变小。
+- 源码提交 `9ed39cf` 已推送 `main`；Actions `35898439142` 编译及 APK 上传成功。
+  测试包 `Caicai-Maid-Live2D-Accessory-Lab-v0.1.19.apk`，SHA-256
+  `d221ae1a33f7daede1a784fad67c39ed2d6a977a855fc466d6ba60b9243d8b0b`。编译通过，
+  侧脸方向与呆毛连续性仍等待真机观察。
 
 ## v0.1.18（实际网格约束与 v0.1.16 同屏切换；待真机验证）
 
