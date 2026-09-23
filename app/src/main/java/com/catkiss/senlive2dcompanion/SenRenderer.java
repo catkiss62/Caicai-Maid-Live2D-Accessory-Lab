@@ -59,6 +59,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile float stageScale = 1.0f;
     private volatile float stageTranslateX;
     private volatile float stageTranslateY;
+    private float stagePivotX;
+    private float stagePivotY;
     private volatile OverlayCalibration overlayCalibration = OverlayCalibration.defaults();
     private volatile CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private volatile CompositeOutfit compositeOutfit = CompositeOutfit.RUBY_ORIGINAL;
@@ -121,10 +123,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", DYNAMIC_ATTACHMENT_ENABLED
                     ? "dynamic_two_point_anchor" : "fixed_calibrated");
+            root.put("attachment_transform_space", "post_model_clip");
             root.put("stage_transform", new JSONObject()
                     .put("scale", stageScale)
                     .put("x", stageTranslateX)
-                    .put("y", stageTranslateY));
+                    .put("y", stageTranslateY)
+                    .put("pivot_x", stagePivotX)
+                    .put("pivot_y", stagePivotY));
             root.put("ear_right_mode", overlayModel != null
                     && overlayModel.mirrorsLeftEarForRight()
                     ? "mirrored_from_left" : "authored_mesh");
@@ -368,7 +373,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             pairX = axis[0];
             pairY = leftCenter[1];
             rightCenter = new float[]{2f * pairX - leftCenter[0], leftCenter[1]};
-            preMirrorAroundX(earRightProjection, pairX);
+            applyMirrorAroundX(earRightProjection, pairX);
         } else {
             rightCenter = pointToClip(overlayModel, senGroupProjection,
                     overlayModel.currentEarCenter(false));
@@ -384,28 +389,28 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return;
         }
         OverlayCalibration.Transform ear = calibration.get(group);
-        preRotateAround(earLeftProjection, ear.pairRotation, pairX, pairY);
-        preRotateAround(earRightProjection, ear.pairRotation, pairX, pairY);
+        applyRotateAround(earLeftProjection, ear.pairRotation, pairX, pairY);
+        applyRotateAround(earRightProjection, ear.pairRotation, pairX, pairY);
 
-        float spacing = ear.spacing * .15f;
-        earLeftProjection.translateRelative(-spacing, 0f);
-        earRightProjection.translateRelative(spacing, 0f);
-        preRotateAround(earLeftProjection, ear.rotation,
+        float spacing = ear.spacing * .15f * stageScale;
+        applyClipTranslation(earLeftProjection, -spacing, 0f);
+        applyClipTranslation(earRightProjection, spacing, 0f);
+        applyRotateAround(earLeftProjection, ear.rotation,
                 leftCenter[0] - spacing, leftCenter[1]);
-        preRotateAround(earRightProjection, -ear.rotation,
+        applyRotateAround(earRightProjection, -ear.rotation,
                 rightCenter[0] + spacing, rightCenter[1]);
         overlayModel.drawEarSide(earLeftProjection, true);
         overlayModel.drawEarSide(earRightProjection, false);
     }
 
-    private static void preMirrorAroundX(CubismMatrix44 matrix, float centerX) {
+    private void applyMirrorAroundX(CubismMatrix44 matrix, float centerX) {
         float[] mirror = {
                 -1f, 0f, 0f, 0f,
                 0f, 1f, 0f, 0f,
                 0f, 0f, 1f, 0f,
                 2f * centerX, 0f, 0f, 1f
         };
-        CubismMatrix44.multiply(mirror, matrix.getArray(), matrix.getArray());
+        overlayModel.applyClipTransform(matrix, mirror);
     }
 
     private void applyAttachmentCorrection(CompositeOverlayGroup group,
@@ -430,8 +435,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         float[] targetAccessoryPose = maidMotion.transformPose(accessoryNeutral);
         Similarity2D correction = Similarity2D.between(
                 accessoryNow, targetAccessoryPose, .35f, 2.5f);
-        CubismMatrix44.multiply(correction.toMatrix(), accessoryProjection.getArray(),
-                accessoryProjection.getArray());
+        overlayModel.applyClipTransform(accessoryProjection, correction.toMatrix());
     }
 
     private float[] poseToClip(SenLive2DModel target, CubismMatrix44 targetProjection,
@@ -456,8 +460,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         };
     }
 
-    private static void preRotateAround(CubismMatrix44 matrix, float degrees,
-                                        float centerX, float centerY) {
+    private void applyRotateAround(CubismMatrix44 matrix, float degrees,
+                                   float centerX, float centerY) {
         if (Math.abs(degrees) < .001f) return;
         double radians = Math.toRadians(degrees);
         float cos = (float) Math.cos(radians);
@@ -470,7 +474,18 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 centerY - sin * centerX - cos * centerY,
                 0f, 1f
         };
-        CubismMatrix44.multiply(rotate, matrix.getArray(), matrix.getArray());
+        overlayModel.applyClipTransform(matrix, rotate);
+    }
+
+    private void applyClipTranslation(CubismMatrix44 matrix, float x, float y) {
+        if (Math.abs(x) < .00001f && Math.abs(y) < .00001f) return;
+        float[] translate = {
+                1f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                x, y, 0f, 1f
+        };
+        overlayModel.applyClipTransform(matrix, translate);
     }
 
     private static final class Similarity2D {
@@ -542,11 +557,41 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             target.fitHeight(2.0f);
             destination.scale(1.0f / aspectRatio, 1.0f);
         }
-        destination.scaleRelative(stageScale * localScale, stageScale * localScale);
-        // Calibration offsets are model-relative. Scale them with the whole stage so accessories
-        // keep the same attachment point when the user zooms the complete composition.
-        destination.translateRelative(stageTranslateX + localX * stageScale,
-                stageTranslateY + localY * stageScale);
+        // Keep the already confirmed accessory calibration in its original projection layer.
+        // The whole-stage transform is applied afterwards in final clip space, so model layout
+        // offsets are not scaled a second time and local accessory offsets scale with the model.
+        destination.scaleRelative(localScale, localScale);
+        destination.translateRelative(localX, localY);
+        if (target == model) updateStagePivot(target, destination);
+        applyStageTransform(target, destination);
+    }
+
+    private void updateStagePivot(SenLive2DModel target, CubismMatrix44 baseProjection) {
+        float centerX = (target.getReferenceDrawableLeft()
+                + target.getReferenceDrawableRight()) * .5f;
+        float centerY = (target.getReferenceDrawableTop()
+                + target.getReferenceDrawableBottom()) * .5f;
+        float[] pivot = pointToClip(target, baseProjection, new float[]{centerX, centerY});
+        if (pivot != null) {
+            stagePivotX = pivot[0];
+            stagePivotY = pivot[1];
+        }
+    }
+
+    private void applyStageTransform(SenLive2DModel target, CubismMatrix44 destination) {
+        float scale = stageScale;
+        if (Math.abs(scale - 1f) < .00001f
+                && Math.abs(stageTranslateX) < .00001f
+                && Math.abs(stageTranslateY) < .00001f) return;
+        float[] stage = {
+                scale, 0f, 0f, 0f,
+                0f, scale, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                stageTranslateX + (1f - scale) * stagePivotX,
+                stageTranslateY + (1f - scale) * stagePivotY,
+                0f, 1f
+        };
+        target.applyClipTransform(destination, stage);
     }
 
     private void updateInteractionBounds() {

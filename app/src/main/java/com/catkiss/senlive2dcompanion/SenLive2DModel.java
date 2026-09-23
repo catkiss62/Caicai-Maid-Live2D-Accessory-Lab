@@ -177,6 +177,8 @@ final class SenLive2DModel extends CubismUserModel {
     private boolean[] earRightFilter;
     private boolean mirrorLeftEarForRight;
     private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
+    private final CubismMatrix44 clipTransformMvp = CubismMatrix44.create();
+    private final CubismMatrix44 inverseModelMatrix = CubismMatrix44.create();
     private final EnumMap<CompositeOverlayGroup, float[]> neutralAttachmentPoses =
             new EnumMap<>(CompositeOverlayGroup.class);
     private boolean staticMode;
@@ -766,6 +768,25 @@ final class SenLive2DModel extends CubismUserModel {
         destination.setMatrix(projection);
         CubismMatrix44.multiply(modelMatrix.getArray(), destination.getArray(),
                 destination.getArray());
+    }
+
+    /**
+     * Applies a transform expressed in final OpenGL clip coordinates without letting the model's
+     * layout matrix scale or translate it a second time.  The renderer normally builds
+     * {@code MVP = modelMatrix * projection}; therefore a clip-space transform C must be converted
+     * back to projection space as {@code inverse(modelMatrix) * C * MVP}.
+     */
+    void applyClipTransform(CubismMatrix44 projection, float[] clipTransform) {
+        if (modelMatrix == null || projection == null || clipTransform == null
+                || clipTransform.length != 16) return;
+        clipTransformMvp.setMatrix(projection);
+        CubismMatrix44.multiply(modelMatrix.getArray(), clipTransformMvp.getArray(),
+                clipTransformMvp.getArray());
+        CubismMatrix44.multiply(clipTransform, clipTransformMvp.getArray(),
+                clipTransformMvp.getArray());
+        modelMatrix.getInvert(inverseModelMatrix);
+        CubismMatrix44.multiply(inverseModelMatrix.getArray(), clipTransformMvp.getArray(),
+                projection.getArray());
     }
 
     float getReferenceDrawableLeft() { return referenceDrawableLeft; }

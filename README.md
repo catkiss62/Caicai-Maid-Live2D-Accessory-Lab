@@ -3,6 +3,14 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.5
+
+- Applies stage, attachment, mirrored-ear and ear-rotation transforms after each model's own
+  Cubism layout matrix, preventing head accessories from amplifying translation while zooming.
+- Scales the complete composition around the maid model's visual center instead of the Live2D
+  canvas origin, so repeated whole-stage zoom no longer walks the character down and right.
+- Keeps the confirmed bind pose and the successful v0.1.4 tail attachment unchanged at 1.0x.
+
 ## v0.1.4
 
 - Attaches ahoge and ear fins to a two-point head frame, and the tail to a separate two-point
