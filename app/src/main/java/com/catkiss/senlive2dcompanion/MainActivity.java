@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v2_native_ears";
-    private static final String VERSION = "v0.1.13 · 蝴蝶结双侧耳鳍挂件绑定";
+    private static final String VERSION = "v0.1.14 · 按部件图层校准";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
             CompositeOverlayGroup.AHOGE,
@@ -165,6 +165,17 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 new LinearLayout.LayoutParams(0, dp(42), 2f));
         panel.addView(moveRow);
 
+        panel.addView(section("部件前后图层（粗粒度 Part）"));
+        LinearLayout layerRow = row();
+        layerRow.addView(actionButton("往后（更容易被遮挡）", () -> adjustLayer(-1)),
+                weighted());
+        layerRow.addView(actionButton("往前（更少遮挡）", () -> adjustLayer(1)),
+                weighted());
+        panel.addView(layerRow);
+        panel.addView(text("呆毛按当前插层的后侧相邻部件跟随；左右耳鳍按前侧相邻部件分别跟随。"
+                        + "同一头发部件的颜色网格合并为一步，尾巴固定在最后层。",
+                9, Color.rgb(180, 159, 199)));
+
         panel.addView(section("耳鳍原生双耳调节"));
         earTargetButton = panelButton(earAdjustmentTarget.label);
         earTargetButton.setOnClickListener(v -> stepEarAdjustmentTarget());
@@ -255,7 +266,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         diagnostic.addView(actionButton("还原整体", this::resetStage), weighted());
         panel.addView(diagnostic);
         panel.addView(text("点击模型会触发“点击”预设；完全静止时不会触发。"
-                        + "图层：尾巴最后、耳鳍先于两侧蝴蝶结、呆毛最前。",
+                        + "图层以明确的‘往前/往后’按钮校准，诊断会记录实际 Part 与固定三角。",
                 9, Color.rgb(180, 159, 199)));
         page.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -351,6 +362,20 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                     0f, 0f, 0f, rotation);
         }
         selectedGroup = CompositeOverlayGroup.EAR_FINS;
+        persistCalibration();
+    }
+
+    private void adjustLayer(int delta) {
+        if (selectedGroup == CompositeOverlayGroup.TAIL) {
+            toast("尾巴固定在最后层，不参与头部图层校准");
+            return;
+        }
+        Boolean screenLeft = null;
+        if (selectedGroup == CompositeOverlayGroup.EAR_FINS
+                && earAdjustmentTarget != EarAdjustmentTarget.PAIR) {
+            screenLeft = earAdjustmentTarget == EarAdjustmentTarget.SCREEN_LEFT;
+        }
+        calibration = calibration.withLayerOffsetDelta(selectedGroup, screenLeft, delta);
         persistCalibration();
     }
 
@@ -527,7 +552,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.13.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.14.json");
         });
     }
 

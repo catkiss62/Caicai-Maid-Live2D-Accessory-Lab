@@ -16,6 +16,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import javax.microedition.khronos.egl.EGLConfig;
@@ -125,20 +126,20 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? "maid_bow_side_local_one_way_carriers"
+                    ? "maid_coarse_part_adjacent_one_way_carriers"
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("sen_rigid_parameter_drive", false);
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "maid_headwear_top_local_triangle")
-                    .put("ear_fins_screen_left", "maid_screen_left_side_bow_local_triangle")
-                    .put("ear_fins_screen_right", "maid_screen_right_side_bow_local_triangle")
+                    .put("ahoge", "selected_slot_behind_adjacent_part")
+                    .put("ear_fins_screen_left", "selected_slot_front_adjacent_part_screen_left")
+                    .put("ear_fins_screen_right", "selected_slot_front_adjacent_part_screen_right")
                     .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
             root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
             root.put("ear_neutral_pose_policy", "inherit_v0.1.12_pair_projection_identity_offsets");
-            root.put("ear_layer_policy", "draw_before_maid_side_bows_and_front_layers");
+            root.put("ear_layer_policy", "independent_coarse_part_slot_per_side");
             root.put("head_test_motions", new org.json.JSONArray(Arrays.asList(
                     "head_x_sweep", "head_y_sweep", "head_z_sweep", "head_sweep")));
             root.put("stage_transform", new JSONObject()
@@ -151,6 +152,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("calibration", overlayCalibration.toJsonObject());
             root.put("maid_carrier_anchors", model == null
                     ? JSONObject.NULL : model.buildCarrierInventory());
+            root.put("maid_part_layer_calibration", model == null
+                    ? JSONObject.NULL : model.buildLayerCalibrationInventory(overlayCalibration));
             root.put("sen_runtime_inventory", overlayModel == null
                     ? JSONObject.NULL : overlayModel.buildCompositeInventory());
             listener.onCompositeReport(root.toString(2));
@@ -164,7 +167,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.13-side-bow-ear-bind";
+            return "0.1.14-part-layer-calibration";
         }
     }
 
@@ -337,16 +340,51 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             if (showSen) {
                 drawOverlayGroup(CompositeOverlayGroup.TAIL);
             }
-            model.drawMainLow(maidProjection);
-            if (showSen) {
-                drawEarFins();
+            if (!showSen) {
+                model.draw(maidProjection);
+                return;
             }
-            model.drawMainHigh(maidProjection);
-            if (showSen) drawOverlayGroup(CompositeOverlayGroup.AHOGE);
+            drawMainWithCalibratedAccessoryLayers();
         } catch (Throwable error) {
             listener.onError(error);
             releaseCurrentModel();
         }
+    }
+
+    private void drawMainWithCalibratedAccessoryLayers() {
+        OverlayCalibration calibration = overlayCalibration;
+        List<Integer> thresholds = new ArrayList<>();
+        int ahogeThreshold = model.resolvedLayerThreshold(
+                CompositeOverlayGroup.AHOGE, true,
+                calibration.getLayerOffset(CompositeOverlayGroup.AHOGE, true));
+        int leftEarThreshold = model.resolvedLayerThreshold(
+                CompositeOverlayGroup.EAR_FINS, true,
+                calibration.getLayerOffset(CompositeOverlayGroup.EAR_FINS, true));
+        int rightEarThreshold = model.resolvedLayerThreshold(
+                CompositeOverlayGroup.EAR_FINS, false,
+                calibration.getLayerOffset(CompositeOverlayGroup.EAR_FINS, false));
+        if (calibration.isVisible(CompositeOverlayGroup.AHOGE)) {
+            thresholds.add(ahogeThreshold);
+        }
+        if (calibration.isVisible(CompositeOverlayGroup.EAR_FINS)) {
+            if (!thresholds.contains(leftEarThreshold)) thresholds.add(leftEarThreshold);
+            if (!thresholds.contains(rightEarThreshold)) thresholds.add(rightEarThreshold);
+        }
+        Collections.sort(thresholds);
+        int previous = Integer.MIN_VALUE;
+        for (int threshold : thresholds) {
+            model.drawMainRenderRange(maidProjection, previous, threshold);
+            if (calibration.isVisible(CompositeOverlayGroup.EAR_FINS)) {
+                if (leftEarThreshold == threshold) drawEarFinSide(true, calibration);
+                if (rightEarThreshold == threshold) drawEarFinSide(false, calibration);
+            }
+            if (calibration.isVisible(CompositeOverlayGroup.AHOGE)
+                    && ahogeThreshold == threshold) {
+                drawOverlayGroup(CompositeOverlayGroup.AHOGE);
+            }
+            previous = threshold;
+        }
+        model.drawMainRenderRange(maidProjection, previous, Integer.MAX_VALUE);
     }
 
     private void drawOverlayGroup(CompositeOverlayGroup group) {
@@ -413,10 +451,14 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private void applyMaidEarCarrierMotion(boolean screenLeft,
                                            CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
+        int layerOffset = overlayCalibration.getLayerOffset(
+                CompositeOverlayGroup.EAR_FINS, screenLeft);
         float[] mainNow = triangleToClip(model, maidProjection,
-                model.currentEarCarrierTriangle(screenLeft));
+                model.currentLayerCarrierTriangle(
+                        CompositeOverlayGroup.EAR_FINS, screenLeft, layerOffset));
         float[] mainNeutral = triangleToClip(model, maidProjection,
-                model.neutralEarCarrierTriangle(screenLeft));
+                model.neutralLayerCarrierTriangle(
+                        CompositeOverlayGroup.EAR_FINS, screenLeft, layerOffset));
         if (mainNow == null || mainNeutral == null) return;
         Similarity2D maidMotion = Similarity2D.betweenTriangle(
                 mainNeutral, mainNow, .50f, 1.80f);
@@ -426,10 +468,15 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private void applyMaidCarrierMotion(CompositeOverlayGroup group,
                                         CubismMatrix44 accessoryProjection) {
         if (model == null || overlayModel == null) return;
+        int layerOffset = overlayCalibration.getLayerOffset(group, true);
         float[] mainNow = triangleToClip(model, maidProjection,
-                model.currentCarrierTriangle(group));
+                group == CompositeOverlayGroup.AHOGE
+                        ? model.currentLayerCarrierTriangle(group, true, layerOffset)
+                        : model.currentCarrierTriangle(group));
         float[] mainNeutral = triangleToClip(model, maidProjection,
-                model.neutralCarrierTriangle(group));
+                group == CompositeOverlayGroup.AHOGE
+                        ? model.neutralLayerCarrierTriangle(group, true, layerOffset)
+                        : model.neutralCarrierTriangle(group));
         if (mainNow == null || mainNeutral == null) return;
 
         // Apply the maid carrier's observed neutral-to-current motion directly to the already

@@ -57,6 +57,9 @@ final class OverlayCalibration {
             new EnumMap<>(CompositeOverlayGroup.class);
     private EarFineTune screenLeftEar = defaultEarFineTune();
     private EarFineTune screenRightEar = defaultEarFineTune();
+    private int ahogeLayerOffset;
+    private int screenLeftEarLayerOffset;
+    private int screenRightEarLayerOffset;
 
     private OverlayCalibration() {
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
@@ -87,6 +90,14 @@ final class OverlayCalibration {
                     root.optJSONObject("ear_fins_screen_left"));
             result.screenRightEar = earFineTuneFromJson(
                     root.optJSONObject("ear_fins_screen_right"));
+            JSONObject layers = root.optJSONObject("part_layer_offsets");
+            if (layers != null) {
+                result.ahogeLayerOffset = clampLayerOffset(layers.optInt("ahoge", 0));
+                result.screenLeftEarLayerOffset = clampLayerOffset(
+                        layers.optInt("ear_fins_screen_left", 0));
+                result.screenRightEarLayerOffset = clampLayerOffset(
+                        layers.optInt("ear_fins_screen_right", 0));
+            }
         } catch (JSONException ignored) { }
         return result;
     }
@@ -126,13 +137,44 @@ final class OverlayCalibration {
 
     OverlayCalibration resetEarSide(boolean screenLeft) {
         OverlayCalibration result = copy();
-        if (screenLeft) result.screenLeftEar = defaultEarFineTune();
-        else result.screenRightEar = defaultEarFineTune();
+        if (screenLeft) {
+            result.screenLeftEar = defaultEarFineTune();
+            result.screenLeftEarLayerOffset = 0;
+        } else {
+            result.screenRightEar = defaultEarFineTune();
+            result.screenRightEarLayerOffset = 0;
+        }
         return result;
     }
 
     EarFineTune getEarFineTune(boolean screenLeft) {
         return screenLeft ? screenLeftEar : screenRightEar;
+    }
+
+    OverlayCalibration withLayerOffsetDelta(CompositeOverlayGroup group,
+                                            Boolean screenLeft, int delta) {
+        OverlayCalibration result = copy();
+        if (group == CompositeOverlayGroup.AHOGE) {
+            result.ahogeLayerOffset = clampLayerOffset(ahogeLayerOffset + delta);
+        } else if (group == CompositeOverlayGroup.EAR_FINS) {
+            if (screenLeft == null || screenLeft) {
+                result.screenLeftEarLayerOffset = clampLayerOffset(
+                        screenLeftEarLayerOffset + delta);
+            }
+            if (screenLeft == null || !screenLeft) {
+                result.screenRightEarLayerOffset = clampLayerOffset(
+                        screenRightEarLayerOffset + delta);
+            }
+        }
+        return result;
+    }
+
+    int getLayerOffset(CompositeOverlayGroup group, boolean screenLeft) {
+        if (group == CompositeOverlayGroup.AHOGE) return ahogeLayerOffset;
+        if (group == CompositeOverlayGroup.EAR_FINS) {
+            return screenLeft ? screenLeftEarLayerOffset : screenRightEarLayerOffset;
+        }
+        return 0;
     }
 
     OverlayCalibration withVisible(CompositeOverlayGroup group, boolean visible) {
@@ -146,6 +188,12 @@ final class OverlayCalibration {
     OverlayCalibration reset(CompositeOverlayGroup group) {
         OverlayCalibration result = copy();
         result.transforms.put(group, defaultTransform(group));
+        if (group == CompositeOverlayGroup.AHOGE) {
+            result.ahogeLayerOffset = 0;
+        } else if (group == CompositeOverlayGroup.EAR_FINS) {
+            result.screenLeftEarLayerOffset = 0;
+            result.screenRightEarLayerOffset = 0;
+        }
         return result;
     }
 
@@ -181,6 +229,10 @@ final class OverlayCalibration {
         }
         root.put("ear_fins_screen_left", screenLeftEar.toJson());
         root.put("ear_fins_screen_right", screenRightEar.toJson());
+        root.put("part_layer_offsets", new JSONObject()
+                .put("ahoge", ahogeLayerOffset)
+                .put("ear_fins_screen_left", screenLeftEarLayerOffset)
+                .put("ear_fins_screen_right", screenRightEarLayerOffset));
         return root;
     }
 
@@ -197,13 +249,17 @@ final class OverlayCalibration {
         if (group == CompositeOverlayGroup.EAR_FINS) {
             return base + String.format(Locale.ROOT,
                     "\nSen原生双耳 · 整体旋转 %+.1f°"
-                            + "\n画面左：缩放 %.2f · X %+.2f · Y %+.2f · 旋转 %+.1f°"
-                            + "\n画面右：缩放 %.2f · X %+.2f · Y %+.2f · 旋转 %+.1f°",
+                            + "\n画面左：缩放 %.2f · X %+.2f · Y %+.2f · 旋转 %+.1f° · 图层 %+d"
+                            + "\n画面右：缩放 %.2f · X %+.2f · Y %+.2f · 旋转 %+.1f° · 图层 %+d",
                     value.pairRotation,
                     screenLeftEar.scale, screenLeftEar.x, screenLeftEar.y,
-                    screenLeftEar.rotation,
+                    screenLeftEar.rotation, screenLeftEarLayerOffset,
                     screenRightEar.scale, screenRightEar.x, screenRightEar.y,
-                    screenRightEar.rotation);
+                    screenRightEar.rotation, screenRightEarLayerOffset);
+        }
+        if (group == CompositeOverlayGroup.AHOGE) {
+            return base + String.format(Locale.ROOT,
+                    "\n部件图层偏移：%+d", ahogeLayerOffset);
         }
         return base;
     }
@@ -214,6 +270,9 @@ final class OverlayCalibration {
         result.transforms.putAll(transforms);
         result.screenLeftEar = screenLeftEar;
         result.screenRightEar = screenRightEar;
+        result.ahogeLayerOffset = ahogeLayerOffset;
+        result.screenLeftEarLayerOffset = screenLeftEarLayerOffset;
+        result.screenRightEarLayerOffset = screenRightEarLayerOffset;
         return result;
     }
 
@@ -251,5 +310,9 @@ final class OverlayCalibration {
 
     private static float clamp(float value, float minimum, float maximum) {
         return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    private static int clampLayerOffset(int value) {
+        return Math.max(-8, Math.min(8, value));
     }
 }

@@ -3,6 +3,22 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.14
+
+- Adds coarse logical-Part layer calibration for the ahoge and each ear fin. The controls say
+  explicitly whether an accessory moves forward (less occlusion) or backward (more occlusion),
+  and screen-left/right ears can occupy different slots.
+- Groups the maid's hair colour variants into the same step instead of exposing individual
+  ArtMeshes. Slots cover back hair, twin-tail/side hair, crown hair, face, front hair, hair shadow,
+  side bows, and headwear.
+- Splits the maid draw into runtime render-order ranges so accessories can be inserted at the
+  selected Part boundary without reordering or duplicating the maid's own meshes.
+- When a non-default slot is selected, the ahoge follows the adjacent Part behind the slot while
+  each ear follows the adjacent Part in front of it. The zero slot deliberately preserves the
+  accepted v0.1.13 headwear/bow carriers and all static scale/X/Y values.
+- Exports every logical group, slot, resolved threshold, adjacent carrier Part, and fixed triangle
+  in the position diagnostic. The tail remains on its verified body carrier and backmost layer.
+
 ## v0.1.13
 
 - Splits Sen's authored ear-fin rig into screen-left and screen-right filtered draw passes without

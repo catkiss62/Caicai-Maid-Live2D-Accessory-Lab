@@ -56,6 +56,24 @@ final class SenLive2DModel extends CubismUserModel {
     // the UI and diagnostics always mean the viewer's screen-left and screen-right.
     private static final String[] MAID_SIDE_BOW_PART_IDS = {"Part30", "Part31"};
     private static final String[] MAID_AHOGE_TOP_PART_IDS = {"Part9"};
+    // Calibration is intentionally coarse: every entry is one logical editor Part family. Hair
+    // colour variants stay in the same slot, so stepping the accessory layer never exposes a
+    // separate colour ArtMesh as though it were a meaningful attachment layer.
+    private static final MaidLayerGroupSpec[] MAID_HEAD_LAYER_GROUP_SPECS = {
+            new MaidLayerGroupSpec("后发", new String[]{
+                    "Part60", "Part62", "Part39", "Part40", "Part41", "Part42"}),
+            new MaidLayerGroupSpec("双马尾与后侧发", new String[]{
+                    "Part55", "Part56", "Part58", "Part45", "Part48",
+                    "Part57", "Part49", "Part47", "Part52", "Part59"}),
+            new MaidLayerGroupSpec("头顶发", new String[]{
+                    "ArtMesh363_Skinning", "ArtMesh264_Skinning"}),
+            new MaidLayerGroupSpec("脸", new String[]{"Part25"}),
+            new MaidLayerGroupSpec("前发", new String[]{
+                    "Part61", "Part10", "Part11", "Part12", "Part13"}),
+            new MaidLayerGroupSpec("头发阴影", new String[]{"Part16"}),
+            new MaidLayerGroupSpec("两侧蝴蝶结", MAID_SIDE_BOW_PART_IDS),
+            new MaidLayerGroupSpec("头饰", MAID_AHOGE_TOP_PART_IDS)
+    };
     // Stable carrier meshes used for cross-model attachment. They are deliberately taken from
     // face/body geometry, never from authored ornaments: a fixed triangle keeps vertex identity
     // across every frame and therefore supplies translation, rotation and scale during large
@@ -154,8 +172,7 @@ final class SenLive2DModel extends CubismUserModel {
     private float[] shapeLockedOutfitParameterRestore = new float[0];
     private SenOutfitPresets.Preset outfitPreset = SenOutfitPresets.MAID;
     private SenRenderOptions renderOptions = new SenRenderOptions(false);
-    private boolean[] mainLowLayerFilter;
-    private boolean[] mainHighLayerFilter;
+    private boolean[] mainLayerRangeFilter;
     private boolean[] earFinScreenLeftFilter;
     private boolean[] earFinScreenRightFilter;
     private final EnumMap<CompositeOverlayGroup, boolean[]> compositeGroupFilters =
@@ -168,6 +185,10 @@ final class SenLive2DModel extends CubismUserModel {
     private MeshAnchorFrame ahogeTopCarrierFrame;
     private MeshAnchorFrame screenLeftBowCarrierFrame;
     private MeshAnchorFrame screenRightBowCarrierFrame;
+    private final List<MaidLayerGroup> maidLayerGroups = new ArrayList<>();
+    private final List<MaidLayerSlot> maidLayerSlots = new ArrayList<>();
+    private int defaultEarLayerSlotIndex = -1;
+    private int defaultAhogeLayerSlotIndex = -1;
     private boolean staticMode;
     private CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private float compositeTestMotionElapsed;
@@ -439,12 +460,22 @@ final class SenLive2DModel extends CubismUserModel {
         drawWithFilter(matrix, null);
     }
 
-    void drawMainLow(CubismMatrix44 matrix) {
-        drawWithFilter(matrix, mainLowLayerFilter);
-    }
-
-    void drawMainHigh(CubismMatrix44 matrix) {
-        drawWithFilter(matrix, mainHighLayerFilter);
+    void drawMainRenderRange(CubismMatrix44 matrix, int lowerExclusive,
+                             int upperInclusive) {
+        if (model == null) return;
+        int count = model.getDrawableCount();
+        if (mainLayerRangeFilter == null || mainLayerRangeFilter.length != count) {
+            mainLayerRangeFilter = new boolean[count];
+        }
+        Arrays.fill(mainLayerRangeFilter, false);
+        int[] renderOrders = model.getRenderOrders();
+        for (int i = 0; i < count && i < renderOrders.length; i++) {
+            int order = renderOrders[i];
+            mainLayerRangeFilter[i] = order > lowerExclusive && order <= upperInclusive;
+        }
+        if (countEnabled(mainLayerRangeFilter) > 0) {
+            drawWithFilter(matrix, mainLayerRangeFilter);
+        }
     }
 
     void drawSenGroup(CubismMatrix44 matrix, CompositeOverlayGroup group) {
@@ -474,26 +505,14 @@ final class SenLive2DModel extends CubismUserModel {
     private void resolveCompositeDrawableFilters() {
         int count = model.getDrawableCount();
         if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
-            Set<Integer> sideBows = collectChildDrawables(MAID_SIDE_BOW_PART_IDS);
-            int[] renderOrders = model.getRenderOrders();
-            int cutoff = Integer.MAX_VALUE;
-            for (int index : sideBows) {
-                if (index >= 0 && index < renderOrders.length) {
-                    cutoff = Math.min(cutoff, renderOrders[index]);
-                }
-            }
-            if (cutoff == Integer.MAX_VALUE) cutoff = medianRenderOrder(renderOrders);
-            mainLowLayerFilter = new boolean[count];
-            mainHighLayerFilter = new boolean[count];
-            for (int i = 0; i < count; i++) {
-                // Insert both ear passes immediately before the first side-bow drawable. The bows
-                // and every later front-hair/headwear drawable therefore cover the fins naturally.
-                if (renderOrders[i] < cutoff) mainLowLayerFilter[i] = true;
-                else mainHighLayerFilter[i] = true;
-            }
-            appendAppearanceDetail("主模型耳鳍插层：蝴蝶结之前 "
-                    + countEnabled(mainLowLayerFilter) + " · 前层 "
-                    + countEnabled(mainHighLayerFilter) + " · 阈值 " + cutoff);
+            mainLayerRangeFilter = new boolean[count];
+            resolveMaidLayerGroups();
+            MaidLayerSlot ear = resolveMaidLayerSlot(
+                    CompositeOverlayGroup.EAR_FINS, true, 0);
+            appendAppearanceDetail("主模型粗粒度插层：" + maidLayerSlots.size()
+                    + " 个位置 · 耳鳍默认 "
+                    + (ear == null ? "缺失" : ear.label + " / 阈值 " + ear.threshold)
+                    + " · 呆毛默认最前");
             return;
         }
 
@@ -521,6 +540,125 @@ final class SenLive2DModel extends CubismUserModel {
                 + countEnabled(earFinScreenLeftFilter) + " / 画面右 "
                 + countEnabled(earFinScreenRightFilter) + " · 双侧独立绘制");
         appendAppearanceDetail("尾巴：活动网格 " + tail.size() + " · 已排除隐藏变体");
+    }
+
+    private void resolveMaidLayerGroups() {
+        maidLayerGroups.clear();
+        maidLayerSlots.clear();
+        defaultEarLayerSlotIndex = -1;
+        defaultAhogeLayerSlotIndex = -1;
+        if (model == null) return;
+
+        int[] renderOrders = model.getRenderOrders();
+        int maximumRenderOrder = Integer.MIN_VALUE;
+        for (int order : renderOrders) maximumRenderOrder = Math.max(maximumRenderOrder, order);
+        for (MaidLayerGroupSpec spec : MAID_HEAD_LAYER_GROUP_SPECS) {
+            Set<Integer> drawables = collectChildDrawables(spec.partIds);
+            if (drawables.isEmpty()) continue;
+            int minimum = Integer.MAX_VALUE;
+            int maximum = Integer.MIN_VALUE;
+            for (int drawable : drawables) {
+                if (drawable < 0 || drawable >= renderOrders.length) continue;
+                minimum = Math.min(minimum, renderOrders[drawable]);
+                maximum = Math.max(maximum, renderOrders[drawable]);
+            }
+            if (minimum == Integer.MAX_VALUE) continue;
+            maidLayerGroups.add(new MaidLayerGroup(spec.label, spec.partIds,
+                    drawables, minimum, maximum));
+        }
+        Collections.sort(maidLayerGroups, (left, right) -> {
+            int byMinimum = Integer.compare(left.minimumRenderOrder, right.minimumRenderOrder);
+            if (byMinimum != 0) return byMinimum;
+            return Integer.compare(left.maximumRenderOrder, right.maximumRenderOrder);
+        });
+
+        Map<Integer, MaidLayerSlot> uniqueSlots = new LinkedHashMap<>();
+        for (MaidLayerGroup group : maidLayerGroups) {
+            int threshold = group.minimumRenderOrder - 1;
+            uniqueSlots.putIfAbsent(threshold, new MaidLayerSlot(threshold));
+        }
+        Set<Integer> sideBows = collectChildDrawables(MAID_SIDE_BOW_PART_IDS);
+        int earThreshold = minimumRenderOrder(sideBows, renderOrders);
+        if (earThreshold != Integer.MAX_VALUE) {
+            earThreshold--;
+            uniqueSlots.putIfAbsent(earThreshold, new MaidLayerSlot(earThreshold));
+        }
+        if (maximumRenderOrder != Integer.MIN_VALUE) {
+            uniqueSlots.putIfAbsent(maximumRenderOrder,
+                    new MaidLayerSlot(maximumRenderOrder));
+        }
+        maidLayerSlots.addAll(uniqueSlots.values());
+        Collections.sort(maidLayerSlots,
+                (left, right) -> Integer.compare(left.threshold, right.threshold));
+
+        for (MaidLayerSlot slot : maidLayerSlots) {
+            for (MaidLayerGroup group : maidLayerGroups) {
+                if (group.minimumRenderOrder <= slot.threshold) slot.behind = group;
+                else if (slot.front == null) slot.front = group;
+            }
+            if (slot.front == null) {
+                slot.label = "最前（所有女仆部件之前）";
+            } else if (slot.behind == null) {
+                slot.label = "最后（在「" + slot.front.label + "」之后）";
+            } else {
+                slot.label = "「" + slot.behind.label + "」与「"
+                        + slot.front.label + "」之间";
+            }
+        }
+        defaultEarLayerSlotIndex = indexOfLayerThreshold(earThreshold);
+        defaultAhogeLayerSlotIndex = indexOfLayerThreshold(maximumRenderOrder);
+        if (defaultEarLayerSlotIndex < 0 && !maidLayerSlots.isEmpty()) {
+            defaultEarLayerSlotIndex = maidLayerSlots.size() / 2;
+        }
+        if (defaultAhogeLayerSlotIndex < 0 && !maidLayerSlots.isEmpty()) {
+            defaultAhogeLayerSlotIndex = maidLayerSlots.size() - 1;
+        }
+    }
+
+    private static int minimumRenderOrder(Set<Integer> drawables, int[] renderOrders) {
+        int result = Integer.MAX_VALUE;
+        if (drawables == null || renderOrders == null) return result;
+        for (int drawable : drawables) {
+            if (drawable >= 0 && drawable < renderOrders.length) {
+                result = Math.min(result, renderOrders[drawable]);
+            }
+        }
+        return result;
+    }
+
+    private int indexOfLayerThreshold(int threshold) {
+        for (int i = 0; i < maidLayerSlots.size(); i++) {
+            if (maidLayerSlots.get(i).threshold == threshold) return i;
+        }
+        return -1;
+    }
+
+    private MaidLayerSlot resolveMaidLayerSlot(CompositeOverlayGroup group,
+                                                boolean screenLeft, int offset) {
+        if (maidLayerSlots.isEmpty()) return null;
+        int base = group == CompositeOverlayGroup.AHOGE
+                ? defaultAhogeLayerSlotIndex : defaultEarLayerSlotIndex;
+        if (base < 0) base = maidLayerSlots.size() - 1;
+        int resolved = Math.max(0, Math.min(maidLayerSlots.size() - 1, base + offset));
+        return maidLayerSlots.get(resolved);
+    }
+
+    int resolvedLayerThreshold(CompositeOverlayGroup group,
+                               boolean screenLeft, int offset) {
+        MaidLayerSlot slot = resolveMaidLayerSlot(group, screenLeft, offset);
+        if (slot != null) return slot.threshold;
+        int[] orders = model == null ? null : model.getRenderOrders();
+        if (orders == null || orders.length == 0) return Integer.MAX_VALUE;
+        if (group != CompositeOverlayGroup.AHOGE) return medianRenderOrder(orders);
+        int maximum = Integer.MIN_VALUE;
+        for (int order : orders) maximum = Math.max(maximum, order);
+        return maximum;
+    }
+
+    String resolvedLayerLabel(CompositeOverlayGroup group,
+                              boolean screenLeft, int offset) {
+        MaidLayerSlot slot = resolveMaidLayerSlot(group, screenLeft, offset);
+        return slot == null ? "未解析" : slot.label;
     }
 
     private Set<Integer> retainVisibleDrawables(Set<Integer> candidates) {
@@ -761,6 +899,67 @@ final class SenLive2DModel extends CubismUserModel {
                         ? JSONObject.NULL : screenRightBowCarrierFrame.toJson());
     }
 
+    JSONObject buildLayerCalibrationInventory(OverlayCalibration calibration)
+            throws JSONException {
+        JSONObject root = new JSONObject();
+        root.put("policy", "coarse_logical_part_slots_preserve_color_variants");
+        root.put("direction", new JSONObject()
+                .put("positive", "往前（更少遮挡）")
+                .put("negative", "往后（更容易被遮挡）"));
+        JSONArray groups = new JSONArray();
+        for (MaidLayerGroup group : maidLayerGroups) groups.put(group.toJson(model));
+        root.put("logical_part_groups", groups);
+        JSONArray slots = new JSONArray();
+        for (int i = 0; i < maidLayerSlots.size(); i++) {
+            MaidLayerSlot slot = maidLayerSlots.get(i);
+            slots.put(slot.toJson(i));
+        }
+        root.put("slots_back_to_front", slots);
+        JSONObject resolved = new JSONObject();
+        int ahogeOffset = calibration.getLayerOffset(CompositeOverlayGroup.AHOGE, true);
+        int leftOffset = calibration.getLayerOffset(CompositeOverlayGroup.EAR_FINS, true);
+        int rightOffset = calibration.getLayerOffset(CompositeOverlayGroup.EAR_FINS, false);
+        resolved.put("ahoge", resolvedLayerJson(
+                CompositeOverlayGroup.AHOGE, true, ahogeOffset));
+        resolved.put("ear_fins_screen_left", resolvedLayerJson(
+                CompositeOverlayGroup.EAR_FINS, true, leftOffset));
+        resolved.put("ear_fins_screen_right", resolvedLayerJson(
+                CompositeOverlayGroup.EAR_FINS, false, rightOffset));
+        root.put("resolved", resolved);
+        return root;
+    }
+
+    private JSONObject resolvedLayerJson(CompositeOverlayGroup group,
+                                         boolean screenLeft, int offset)
+            throws JSONException {
+        MaidLayerSlot slot = resolveMaidLayerSlot(group, screenLeft, offset);
+        MeshAnchorFrame carrier = carrierFrameForLayer(group, screenLeft, offset);
+        int base = group == CompositeOverlayGroup.AHOGE
+                ? defaultAhogeLayerSlotIndex : defaultEarLayerSlotIndex;
+        int index = slot == null ? -1 : maidLayerSlots.indexOf(slot);
+        MaidLayerGroup carrierGroup = null;
+        if (slot != null && offset != 0) {
+            carrierGroup = group == CompositeOverlayGroup.AHOGE
+                    ? (slot.behind == null ? slot.front : slot.behind)
+                    : (slot.front == null ? slot.behind : slot.front);
+        }
+        return new JSONObject()
+                .put("requested_offset", offset)
+                .put("base_slot_index", base)
+                .put("resolved_slot_index", index)
+                .put("threshold", slot == null ? JSONObject.NULL : slot.threshold)
+                .put("slot_label", slot == null ? "未解析" : slot.label)
+                .put("carrier_rule", group == CompositeOverlayGroup.AHOGE
+                        ? "当前插层后侧相邻部件" : "当前插层前侧相邻部件")
+                .put("carrier_compatibility_zero", offset == 0)
+                .put("carrier_group", carrierGroup == null
+                        ? (group == CompositeOverlayGroup.AHOGE
+                        ? "v0.1.13_头饰" : "v0.1.13_对应侧蝴蝶结")
+                        : carrierGroup.label)
+                .put("carrier_anchor", carrier == null
+                        ? JSONObject.NULL : carrier.toJson());
+    }
+
     private JSONArray drawableIdsForFilter(boolean[] filter) {
         JSONArray result = new JSONArray();
         if (model == null || filter == null) return result;
@@ -803,6 +1002,7 @@ final class SenLive2DModel extends CubismUserModel {
                 screenLeftBowCarrierFrame = secondBow;
                 screenRightBowCarrierFrame = firstBow;
             }
+            for (MaidLayerGroup group : maidLayerGroups) group.captureFrames(model);
         }
         neutralAhogeRoot = compositeRole == CompositeModelRole.SEN_ACCESSORY_DONOR
                 ? currentAhogeRootPoint() : null;
@@ -845,6 +1045,43 @@ final class SenLive2DModel extends CubismUserModel {
                 ? screenLeftBowCarrierFrame : screenRightBowCarrierFrame;
         return frame == null ? neutralCarrierTriangle(CompositeOverlayGroup.EAR_FINS)
                 : frame.neutralTriangle();
+    }
+
+    float[] currentLayerCarrierTriangle(CompositeOverlayGroup group,
+                                        boolean screenLeft, int layerOffset) {
+        MeshAnchorFrame frame = carrierFrameForLayer(group, screenLeft, layerOffset);
+        return frame == null ? null : frame.currentTriangle(model);
+    }
+
+    float[] neutralLayerCarrierTriangle(CompositeOverlayGroup group,
+                                        boolean screenLeft, int layerOffset) {
+        MeshAnchorFrame frame = carrierFrameForLayer(group, screenLeft, layerOffset);
+        return frame == null ? null : frame.neutralTriangle();
+    }
+
+    private MeshAnchorFrame carrierFrameForLayer(CompositeOverlayGroup group,
+                                                  boolean screenLeft, int layerOffset) {
+        // Offset zero is a compatibility promise: it is exactly the v0.1.13 headwear/bow carrier
+        // and therefore cannot disturb the neutral position the user has already accepted.
+        if (layerOffset == 0) {
+            if (group == CompositeOverlayGroup.AHOGE) {
+                return ahogeTopCarrierFrame == null ? headCarrierFrame : ahogeTopCarrierFrame;
+            }
+            if (group == CompositeOverlayGroup.EAR_FINS) {
+                MeshAnchorFrame bow = screenLeft
+                        ? screenLeftBowCarrierFrame : screenRightBowCarrierFrame;
+                return bow == null ? headCarrierFrame : bow;
+            }
+        }
+        MaidLayerSlot slot = resolveMaidLayerSlot(group, screenLeft, layerOffset);
+        if (slot == null) return headCarrierFrame;
+        MaidLayerGroup carrierGroup = group == CompositeOverlayGroup.AHOGE
+                ? (slot.behind == null ? slot.front : slot.behind)
+                : (slot.front == null ? slot.behind : slot.front);
+        if (carrierGroup == null) return headCarrierFrame;
+        MeshAnchorFrame frame = group == CompositeOverlayGroup.EAR_FINS
+                ? carrierGroup.sideFrame(screenLeft) : carrierGroup.centerFrame;
+        return frame == null ? headCarrierFrame : frame;
     }
 
     float[] currentAhogeRootPoint() {
@@ -1977,6 +2214,125 @@ final class SenLive2DModel extends CubismUserModel {
         // With two or more render textures the official Framework lays out up to 32 contexts
         // per texture. 64 is a safety ceiling for malformed or hostile imported models.
         return Math.min(64, Math.max(2, (groups + 31) / 32));
+    }
+
+    private static final class MaidLayerGroupSpec {
+        final String label;
+        final String[] partIds;
+
+        MaidLayerGroupSpec(String label, String[] partIds) {
+            this.label = label;
+            this.partIds = partIds;
+        }
+    }
+
+    private static final class MaidLayerGroup {
+        final String label;
+        final String[] partIds;
+        final Set<Integer> drawables;
+        final int minimumRenderOrder;
+        final int maximumRenderOrder;
+        MeshAnchorFrame centerFrame;
+        MeshAnchorFrame screenLeftFrame;
+        MeshAnchorFrame screenRightFrame;
+
+        MaidLayerGroup(String label, String[] partIds, Set<Integer> drawables,
+                       int minimumRenderOrder, int maximumRenderOrder) {
+            this.label = label;
+            this.partIds = partIds.clone();
+            this.drawables = new LinkedHashSet<>(drawables);
+            this.minimumRenderOrder = minimumRenderOrder;
+            this.maximumRenderOrder = maximumRenderOrder;
+        }
+
+        void captureFrames(com.live2d.sdk.cubism.framework.model.CubismModel target) {
+            centerFrame = MeshAnchorFrame.fromLargestStableTriangle(target, drawables);
+            Set<Integer> left = new LinkedHashSet<>();
+            Set<Integer> right = new LinkedHashSet<>();
+            List<Float> centers = new ArrayList<>();
+            Map<Integer, Float> centerByDrawable = new LinkedHashMap<>();
+            for (int drawable : drawables) {
+                float center = drawableCenterX(target, drawable);
+                if (Float.isNaN(center)) continue;
+                centers.add(center);
+                centerByDrawable.put(drawable, center);
+            }
+            Collections.sort(centers);
+            float midpoint = centers.isEmpty() ? 0f
+                    : (centers.get((centers.size() - 1) / 2)
+                    + centers.get(centers.size() / 2)) * .5f;
+            for (Map.Entry<Integer, Float> entry : centerByDrawable.entrySet()) {
+                if (entry.getValue() <= midpoint) left.add(entry.getKey());
+                if (entry.getValue() >= midpoint) right.add(entry.getKey());
+            }
+            screenLeftFrame = MeshAnchorFrame.fromLargestStableTriangle(
+                    target, left.isEmpty() ? drawables : left);
+            screenRightFrame = MeshAnchorFrame.fromLargestStableTriangle(
+                    target, right.isEmpty() ? drawables : right);
+        }
+
+        MeshAnchorFrame sideFrame(boolean screenLeft) {
+            MeshAnchorFrame result = screenLeft ? screenLeftFrame : screenRightFrame;
+            return result == null ? centerFrame : result;
+        }
+
+        JSONObject toJson(com.live2d.sdk.cubism.framework.model.CubismModel target)
+                throws JSONException {
+            JSONArray drawableIds = new JSONArray();
+            if (target != null) for (int drawable : drawables) {
+                if (drawable >= 0 && drawable < target.getDrawableCount()) {
+                    drawableIds.put(target.getDrawableId(drawable).getString());
+                }
+            }
+            return new JSONObject()
+                    .put("label", label)
+                    .put("part_ids", new JSONArray(Arrays.asList(partIds)))
+                    .put("minimum_render_order", minimumRenderOrder)
+                    .put("maximum_render_order", maximumRenderOrder)
+                    .put("drawable_ids", drawableIds)
+                    .put("center_anchor", centerFrame == null
+                            ? JSONObject.NULL : centerFrame.toJson())
+                    .put("screen_left_anchor", screenLeftFrame == null
+                            ? JSONObject.NULL : screenLeftFrame.toJson())
+                    .put("screen_right_anchor", screenRightFrame == null
+                            ? JSONObject.NULL : screenRightFrame.toJson());
+        }
+
+        private static float drawableCenterX(
+                com.live2d.sdk.cubism.framework.model.CubismModel target, int drawable) {
+            if (target == null || drawable < 0 || drawable >= target.getDrawableCount()) {
+                return Float.NaN;
+            }
+            float[] vertices = target.getDrawableVertices(drawable);
+            if (vertices == null || vertices.length < 2) return Float.NaN;
+            float minimum = Float.POSITIVE_INFINITY;
+            float maximum = Float.NEGATIVE_INFINITY;
+            for (int i = 0; i + 1 < vertices.length; i += 2) {
+                minimum = Math.min(minimum, vertices[i]);
+                maximum = Math.max(maximum, vertices[i]);
+            }
+            return (minimum + maximum) * .5f;
+        }
+    }
+
+    private static final class MaidLayerSlot {
+        final int threshold;
+        String label = "";
+        MaidLayerGroup behind;
+        MaidLayerGroup front;
+
+        MaidLayerSlot(int threshold) {
+            this.threshold = threshold;
+        }
+
+        JSONObject toJson(int index) throws JSONException {
+            return new JSONObject()
+                    .put("index", index)
+                    .put("threshold", threshold)
+                    .put("label", label)
+                    .put("behind_group", behind == null ? JSONObject.NULL : behind.label)
+                    .put("front_group", front == null ? JSONObject.NULL : front.label);
+        }
     }
 
     /** A fixed drawable triangle used as a deformation carrier across model frames. */
