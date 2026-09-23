@@ -126,20 +126,21 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     Arrays.asList("tail", "ahoge", "ear_fins")));
             root.put("test_motion", compositeTestMotion.id);
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? "maid_coarse_part_adjacent_one_way_carriers"
+                    ? "maid_material_hair_section_one_way_carriers"
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
             root.put("sen_rigid_parameter_drive", false);
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
-                    .put("ahoge", "selected_slot_behind_adjacent_part")
-                    .put("ear_fins_screen_left", "selected_slot_front_adjacent_part_screen_left")
-                    .put("ear_fins_screen_right", "selected_slot_front_adjacent_part_screen_right")
+                    .put("ahoge", "fixed_top_hair_carrier_independent_from_draw_layer")
+                    .put("ear_fins_screen_left", "selected_front_material_section_screen_left")
+                    .put("ear_fins_screen_right", "selected_front_material_section_screen_right")
                     .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
             root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
             root.put("ear_neutral_pose_policy", "inherit_v0.1.12_pair_projection_identity_offsets");
-            root.put("ear_layer_policy", "independent_coarse_part_slot_per_side");
+            root.put("ear_layer_policy", "independent_material_skinning_section_slot_per_side");
+            root.put("ahoge_layer_policy", "draw_immediately_in_front_of_headwear");
             root.put("head_test_motions", new org.json.JSONArray(Arrays.asList(
                     "head_x_sweep", "head_y_sweep", "head_z_sweep", "head_sweep")));
             root.put("stage_transform", new JSONObject()
@@ -167,7 +168,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.14-part-layer-calibration";
+            return "0.1.15-material-hair-sections";
         }
     }
 

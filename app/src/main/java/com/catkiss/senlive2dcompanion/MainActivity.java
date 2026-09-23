@@ -40,8 +40,8 @@ import java.util.zip.ZipInputStream;
 /** 菜菜女仆主模型 + Sen 呆毛、耳鳍、尾巴配件实验室。 */
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
-    private static final String CALIBRATION_KEY = "accessory_calibration_v2_native_ears";
-    private static final String VERSION = "v0.1.14 · 按部件图层校准";
+    private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
+    private static final String VERSION = "v0.1.15 · 头发素材节图层校准";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
             CompositeOverlayGroup.AHOGE,
@@ -165,15 +165,15 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 new LinearLayout.LayoutParams(0, dp(42), 2f));
         panel.addView(moveRow);
 
-        panel.addView(section("部件前后图层（粗粒度 Part）"));
+        panel.addView(section("部件前后图层（按头发素材节）"));
         LinearLayout layerRow = row();
         layerRow.addView(actionButton("往后（更容易被遮挡）", () -> adjustLayer(-1)),
                 weighted());
         layerRow.addView(actionButton("往前（更少遮挡）", () -> adjustLayer(1)),
                 weighted());
         panel.addView(layerRow);
-        panel.addView(text("呆毛按当前插层的后侧相邻部件跟随；左右耳鳍按前侧相邻部件分别跟随。"
-                        + "同一头发部件的颜色网格合并为一步，尾巴固定在最后层。",
+        panel.addView(text("呆毛始终绑定顶部头发，绘制在头饰前一层；左右耳鳍按当前插层"
+                        + "前侧的蒙皮素材节分别跟随。同一素材节的颜色变体合并为一步。",
                 9, Color.rgb(180, 159, 199)));
 
         panel.addView(section("耳鳍原生双耳调节"));
@@ -552,7 +552,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.14.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.15.json");
         });
     }
 

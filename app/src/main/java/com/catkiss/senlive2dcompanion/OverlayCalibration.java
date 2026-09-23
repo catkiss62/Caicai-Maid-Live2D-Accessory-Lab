@@ -313,6 +313,6 @@ final class OverlayCalibration {
     }
 
     private static int clampLayerOffset(int value) {
-        return Math.max(-8, Math.min(8, value));
+        return Math.max(-32, Math.min(32, value));
     }
 }

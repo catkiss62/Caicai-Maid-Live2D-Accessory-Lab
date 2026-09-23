@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 15
-        versionName '0.1.14-part-layer-calibration'
+        versionCode 16
+        versionName '0.1.15-material-hair-sections'
     }
 
     signingConfigs {

@@ -55,24 +55,68 @@ final class SenLive2DModel extends CubismUserModel {
     // Part names contain editor-side left/right labels, but runtime assignment uses neutral X so
     // the UI and diagnostics always mean the viewer's screen-left and screen-right.
     private static final String[] MAID_SIDE_BOW_PART_IDS = {"Part30", "Part31"};
-    private static final String[] MAID_AHOGE_TOP_PART_IDS = {"Part9"};
-    // Calibration is intentionally coarse: every entry is one logical editor Part family. Hair
-    // colour variants stay in the same slot, so stepping the accessory layer never exposes a
-    // separate colour ArtMesh as though it were a meaningful attachment layer.
+    private static final String[] MAID_HEADWEAR_PART_IDS = {"Part9"};
+    private static final String[] MAID_TOP_HAIR_PART_IDS = {
+            "ArtMesh363_Skinning", "ArtMesh264_Skinning"
+    };
+    // One group now represents one authored hair material/skinning section, not the broad
+    // recursive "front hair/back hair" folders. The latter swallowed hundreds of independently
+    // layered meshes in v0.1.14. IDs that are the same visible section in different colour/style
+    // branches are deliberately merged into one calibration step.
     private static final MaidLayerGroupSpec[] MAID_HEAD_LAYER_GROUP_SPECS = {
-            new MaidLayerGroupSpec("后发", new String[]{
-                    "Part60", "Part62", "Part39", "Part40", "Part41", "Part42"}),
-            new MaidLayerGroupSpec("双马尾与后侧发", new String[]{
-                    "Part55", "Part56", "Part58", "Part45", "Part48",
-                    "Part57", "Part49", "Part47", "Part52", "Part59"}),
-            new MaidLayerGroupSpec("头顶发", new String[]{
+            new MaidLayerGroupSpec("后发左1", new String[]{"ArtMesh254_Skinning"}),
+            new MaidLayerGroupSpec("左双马尾", new String[]{"ArtMesh255_Skinning"}),
+            new MaidLayerGroupSpec("后发左2", new String[]{"ArtMesh256_Skinning"}),
+            new MaidLayerGroupSpec("后发右1", new String[]{"ArtMesh257_Skinning"}),
+            new MaidLayerGroupSpec("右双马尾", new String[]{"ArtMesh258_Skinning"}),
+            new MaidLayerGroupSpec("后发图层178", new String[]{"ArtMesh259_Skinning"}),
+            new MaidLayerGroupSpec("右双马尾发丝", new String[]{"ArtMesh260_Skinning"}),
+            new MaidLayerGroupSpec("后发右1发丝", new String[]{"ArtMesh261_Skinning"}),
+            new MaidLayerGroupSpec("后发中间", new String[]{"ArtMesh262_Skinning"}),
+            new MaidLayerGroupSpec("后发中间2", new String[]{"ArtMesh349_Skinning"}),
+            new MaidLayerGroupSpec("后发左3", new String[]{"ArtMesh263_Skinning"}),
+            new MaidLayerGroupSpec("顶部头发", new String[]{
                     "ArtMesh363_Skinning", "ArtMesh264_Skinning"}),
-            new MaidLayerGroupSpec("脸", new String[]{"Part25"}),
-            new MaidLayerGroupSpec("前发", new String[]{
-                    "Part61", "Part10", "Part11", "Part12", "Part13"}),
-            new MaidLayerGroupSpec("头发阴影", new String[]{"Part16"}),
+            new MaidLayerGroupSpec("头发图层155", new String[]{"ArtMesh265_Skinning"}),
+            new MaidLayerGroupSpec("头发图层154", new String[]{"ArtMesh266_Skinning"}),
+            new MaidLayerGroupSpec("头发图层153", new String[]{"ArtMesh267_Skinning"}),
+            new MaidLayerGroupSpec("头发图层152", new String[]{"ArtMesh268_Skinning"}),
+            new MaidLayerGroupSpec("头发图层151", new String[]{"ArtMesh269_Skinning"}),
+            new MaidLayerGroupSpec("头发图层150", new String[]{"ArtMesh270_Skinning"}),
+            new MaidLayerGroupSpec("头发图层149", new String[]{"ArtMesh271_Skinning"}),
+            new MaidLayerGroupSpec("头发图层148", new String[]{"ArtMesh272_Skinning"}),
+            new MaidLayerGroupSpec("头发图层147", new String[]{
+                    "ArtMesh335_Skinning", "ArtMesh360_Skinning"}),
+            new MaidLayerGroupSpec("头发图层146", new String[]{"ArtMesh274_Skinning"}),
+            new MaidLayerGroupSpec("头发图层145", new String[]{
+                    "ArtMesh364_Skinning", "ArtMesh275_Skinning"}),
+            new MaidLayerGroupSpec("侧发左1", new String[]{
+                    "ArtMesh276_Skinning", "ArtMesh287_Skinning"}),
+            new MaidLayerGroupSpec("侧发左2", new String[]{
+                    "ArtMesh284_Skinning", "ArtMesh288_Skinning"}),
+            new MaidLayerGroupSpec("侧发左3", new String[]{
+                    "ArtMesh278_Skinning", "ArtMesh289_Skinning"}),
+            new MaidLayerGroupSpec("侧发右1", new String[]{
+                    "ArtMesh279_Skinning", "ArtMesh290_Skinning"}),
+            new MaidLayerGroupSpec("侧发右2", new String[]{
+                    "ArtMesh334_Skinning", "ArtMesh291_Skinning"}),
+            new MaidLayerGroupSpec("散发1", new String[]{
+                    "ArtMesh281_Skinning", "ArtMesh292_Skinning"}),
+            new MaidLayerGroupSpec("散发2", new String[]{
+                    "ArtMesh280_Skinning", "ArtMesh293_Skinning"}),
+            new MaidLayerGroupSpec("散发3", new String[]{
+                    "ArtMesh283_Skinning", "ArtMesh294_Skinning"}),
+            new MaidLayerGroupSpec("头发小节1", new String[]{
+                    "ArtMesh336_Skinning", "ArtMesh362_Skinning",
+                    "ArtMesh361_Skinning", "ArtMesh295_Skinning"}),
+            new MaidLayerGroupSpec("头发小节2", new String[]{
+                    "ArtMesh285_Skinning", "ArtMesh296_Skinning"}),
+            new MaidLayerGroupSpec("头发图层114", new String[]{
+                    "ArtMesh365_Skinning", "ArtMesh286_Skinning"}),
+            new MaidLayerGroupSpec("头发图层组3", new String[]{
+                    "ArtMesh366_Skinning", "ArtMesh297_Skinning"}),
             new MaidLayerGroupSpec("两侧蝴蝶结", MAID_SIDE_BOW_PART_IDS),
-            new MaidLayerGroupSpec("头饰", MAID_AHOGE_TOP_PART_IDS)
+            new MaidLayerGroupSpec("头饰", MAID_HEADWEAR_PART_IDS)
     };
     // Stable carrier meshes used for cross-model attachment. They are deliberately taken from
     // face/body geometry, never from authored ornaments: a fixed triangle keeps vertex identity
@@ -182,7 +226,7 @@ final class SenLive2DModel extends CubismUserModel {
     private final CubismMatrix44 drawMvpMatrix = CubismMatrix44.create();
     private MeshAnchorFrame headCarrierFrame;
     private MeshAnchorFrame bodyCarrierFrame;
-    private MeshAnchorFrame ahogeTopCarrierFrame;
+    private MeshAnchorFrame ahogeHairCarrierFrame;
     private MeshAnchorFrame screenLeftBowCarrierFrame;
     private MeshAnchorFrame screenRightBowCarrierFrame;
     private final List<MaidLayerGroup> maidLayerGroups = new ArrayList<>();
@@ -509,10 +553,14 @@ final class SenLive2DModel extends CubismUserModel {
             resolveMaidLayerGroups();
             MaidLayerSlot ear = resolveMaidLayerSlot(
                     CompositeOverlayGroup.EAR_FINS, true, 0);
+            MaidLayerSlot ahoge = resolveMaidLayerSlot(
+                    CompositeOverlayGroup.AHOGE, true, 0);
             appendAppearanceDetail("主模型粗粒度插层：" + maidLayerSlots.size()
                     + " 个位置 · 耳鳍默认 "
                     + (ear == null ? "缺失" : ear.label + " / 阈值 " + ear.threshold)
-                    + " · 呆毛默认最前");
+                    + " · 呆毛默认 "
+                    + (ahoge == null ? "缺失" : ahoge.label + " / 阈值 "
+                    + ahoge.threshold));
             return;
         }
 
@@ -583,6 +631,11 @@ final class SenLive2DModel extends CubismUserModel {
             earThreshold--;
             uniqueSlots.putIfAbsent(earThreshold, new MaidLayerSlot(earThreshold));
         }
+        Set<Integer> headwear = collectChildDrawables(MAID_HEADWEAR_PART_IDS);
+        int ahogeThreshold = maximumRenderOrder(headwear, renderOrders);
+        if (ahogeThreshold != Integer.MAX_VALUE) {
+            uniqueSlots.putIfAbsent(ahogeThreshold, new MaidLayerSlot(ahogeThreshold));
+        }
         if (maximumRenderOrder != Integer.MIN_VALUE) {
             uniqueSlots.putIfAbsent(maximumRenderOrder,
                     new MaidLayerSlot(maximumRenderOrder));
@@ -604,9 +657,12 @@ final class SenLive2DModel extends CubismUserModel {
                 slot.label = "「" + slot.behind.label + "」与「"
                         + slot.front.label + "」之间";
             }
+            if (slot.threshold == ahogeThreshold) {
+                slot.label = "头饰前一层（呆毛默认）";
+            }
         }
         defaultEarLayerSlotIndex = indexOfLayerThreshold(earThreshold);
-        defaultAhogeLayerSlotIndex = indexOfLayerThreshold(maximumRenderOrder);
+        defaultAhogeLayerSlotIndex = indexOfLayerThreshold(ahogeThreshold);
         if (defaultEarLayerSlotIndex < 0 && !maidLayerSlots.isEmpty()) {
             defaultEarLayerSlotIndex = maidLayerSlots.size() / 2;
         }
@@ -624,6 +680,17 @@ final class SenLive2DModel extends CubismUserModel {
             }
         }
         return result;
+    }
+
+    private static int maximumRenderOrder(Set<Integer> drawables, int[] renderOrders) {
+        int result = Integer.MIN_VALUE;
+        if (drawables == null || renderOrders == null) return Integer.MAX_VALUE;
+        for (int drawable : drawables) {
+            if (drawable >= 0 && drawable < renderOrders.length) {
+                result = Math.max(result, renderOrders[drawable]);
+            }
+        }
+        return result == Integer.MIN_VALUE ? Integer.MAX_VALUE : result;
     }
 
     private int indexOfLayerThreshold(int threshold) {
@@ -891,8 +958,8 @@ final class SenLive2DModel extends CubismUserModel {
                         ? JSONObject.NULL : headCarrierFrame.toJson())
                 .put("body", bodyCarrierFrame == null
                         ? JSONObject.NULL : bodyCarrierFrame.toJson())
-                .put("ahoge_top", ahogeTopCarrierFrame == null
-                        ? JSONObject.NULL : ahogeTopCarrierFrame.toJson())
+                .put("ahoge_top_hair", ahogeHairCarrierFrame == null
+                        ? JSONObject.NULL : ahogeHairCarrierFrame.toJson())
                 .put("screen_left_bow", screenLeftBowCarrierFrame == null
                         ? JSONObject.NULL : screenLeftBowCarrierFrame.toJson())
                 .put("screen_right_bow", screenRightBowCarrierFrame == null
@@ -902,7 +969,9 @@ final class SenLive2DModel extends CubismUserModel {
     JSONObject buildLayerCalibrationInventory(OverlayCalibration calibration)
             throws JSONException {
         JSONObject root = new JSONObject();
-        root.put("policy", "coarse_logical_part_slots_preserve_color_variants");
+        root.put("policy", "skinning_material_sections_merge_equivalent_color_branches");
+        root.put("source_granularity", "author_skinning_part_approximately_one_source_material_piece");
+        root.put("texture_atlas_note", "texture_00_to_03_are_packed_atlases_not_source_png_layers");
         root.put("direction", new JSONObject()
                 .put("positive", "往前（更少遮挡）")
                 .put("negative", "往后（更容易被遮挡）"));
@@ -938,10 +1007,8 @@ final class SenLive2DModel extends CubismUserModel {
                 ? defaultAhogeLayerSlotIndex : defaultEarLayerSlotIndex;
         int index = slot == null ? -1 : maidLayerSlots.indexOf(slot);
         MaidLayerGroup carrierGroup = null;
-        if (slot != null && offset != 0) {
-            carrierGroup = group == CompositeOverlayGroup.AHOGE
-                    ? (slot.behind == null ? slot.front : slot.behind)
-                    : (slot.front == null ? slot.behind : slot.front);
+        if (slot != null && offset != 0 && group == CompositeOverlayGroup.EAR_FINS) {
+            carrierGroup = slot.front == null ? slot.behind : slot.front;
         }
         return new JSONObject()
                 .put("requested_offset", offset)
@@ -950,11 +1017,11 @@ final class SenLive2DModel extends CubismUserModel {
                 .put("threshold", slot == null ? JSONObject.NULL : slot.threshold)
                 .put("slot_label", slot == null ? "未解析" : slot.label)
                 .put("carrier_rule", group == CompositeOverlayGroup.AHOGE
-                        ? "当前插层后侧相邻部件" : "当前插层前侧相邻部件")
+                        ? "固定绑定顶部头发；与绘制插层解耦" : "当前插层前侧相邻素材节")
                 .put("carrier_compatibility_zero", offset == 0)
                 .put("carrier_group", carrierGroup == null
                         ? (group == CompositeOverlayGroup.AHOGE
-                        ? "v0.1.13_头饰" : "v0.1.13_对应侧蝴蝶结")
+                        ? "顶部头发" : "v0.1.13_对应侧蝴蝶结")
                         : carrierGroup.label)
                 .put("carrier_anchor", carrier == null
                         ? JSONObject.NULL : carrier.toJson());
@@ -988,8 +1055,8 @@ final class SenLive2DModel extends CubismUserModel {
         bodyCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
                 model, collectChildDrawables(bodyParts));
         if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
-            ahogeTopCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
-                    model, collectChildDrawables(MAID_AHOGE_TOP_PART_IDS));
+            ahogeHairCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
+                    model, collectChildDrawables(MAID_TOP_HAIR_PART_IDS));
             MeshAnchorFrame firstBow = MeshAnchorFrame.fromLargestStableTriangle(
                     model, collectChildDrawables(new String[]{MAID_SIDE_BOW_PART_IDS[0]}));
             MeshAnchorFrame secondBow = MeshAnchorFrame.fromLargestStableTriangle(
@@ -1010,8 +1077,8 @@ final class SenLive2DModel extends CubismUserModel {
                 + (headCarrierFrame == null ? "缺失" : headCarrierFrame.drawableId)
                 + " · 身体 "
                 + (bodyCarrierFrame == null ? "缺失" : bodyCarrierFrame.drawableId)
-                + (ahogeTopCarrierFrame == null ? "" : " · 呆毛头顶 "
-                + ahogeTopCarrierFrame.drawableId)
+                + (ahogeHairCarrierFrame == null ? "" : " · 呆毛顶部头发 "
+                + ahogeHairCarrierFrame.drawableId)
                 + (screenLeftBowCarrierFrame == null ? "" : " · 画面左蝴蝶结 "
                 + screenLeftBowCarrierFrame.drawableId)
                 + (screenRightBowCarrierFrame == null ? "" : " · 画面右蝴蝶结 "
@@ -1021,15 +1088,15 @@ final class SenLive2DModel extends CubismUserModel {
 
     float[] currentCarrierTriangle(CompositeOverlayGroup group) {
         MeshAnchorFrame frame = group == CompositeOverlayGroup.TAIL ? bodyCarrierFrame
-                : group == CompositeOverlayGroup.AHOGE && ahogeTopCarrierFrame != null
-                ? ahogeTopCarrierFrame : headCarrierFrame;
+                : group == CompositeOverlayGroup.AHOGE && ahogeHairCarrierFrame != null
+                ? ahogeHairCarrierFrame : headCarrierFrame;
         return frame == null ? null : frame.currentTriangle(model);
     }
 
     float[] neutralCarrierTriangle(CompositeOverlayGroup group) {
         MeshAnchorFrame frame = group == CompositeOverlayGroup.TAIL ? bodyCarrierFrame
-                : group == CompositeOverlayGroup.AHOGE && ahogeTopCarrierFrame != null
-                ? ahogeTopCarrierFrame : headCarrierFrame;
+                : group == CompositeOverlayGroup.AHOGE && ahogeHairCarrierFrame != null
+                ? ahogeHairCarrierFrame : headCarrierFrame;
         return frame == null ? null : frame.neutralTriangle();
     }
 
@@ -1061,12 +1128,14 @@ final class SenLive2DModel extends CubismUserModel {
 
     private MeshAnchorFrame carrierFrameForLayer(CompositeOverlayGroup group,
                                                   boolean screenLeft, int layerOffset) {
-        // Offset zero is a compatibility promise: it is exactly the v0.1.13 headwear/bow carrier
-        // and therefore cannot disturb the neutral position the user has already accepted.
+        // Ahoge draw order and motion carrier are intentionally independent. Its root grows from
+        // the top-hair mesh even while it is drawn immediately in front of the headwear.
+        if (group == CompositeOverlayGroup.AHOGE) {
+            return ahogeHairCarrierFrame == null ? headCarrierFrame : ahogeHairCarrierFrame;
+        }
+        // Ear offset zero remains the accepted v0.1.13 side-bow carrier. Non-zero calibration
+        // selects a material-sized hair section and uses its corresponding screen-side triangle.
         if (layerOffset == 0) {
-            if (group == CompositeOverlayGroup.AHOGE) {
-                return ahogeTopCarrierFrame == null ? headCarrierFrame : ahogeTopCarrierFrame;
-            }
             if (group == CompositeOverlayGroup.EAR_FINS) {
                 MeshAnchorFrame bow = screenLeft
                         ? screenLeftBowCarrierFrame : screenRightBowCarrierFrame;
@@ -1075,9 +1144,7 @@ final class SenLive2DModel extends CubismUserModel {
         }
         MaidLayerSlot slot = resolveMaidLayerSlot(group, screenLeft, layerOffset);
         if (slot == null) return headCarrierFrame;
-        MaidLayerGroup carrierGroup = group == CompositeOverlayGroup.AHOGE
-                ? (slot.behind == null ? slot.front : slot.behind)
-                : (slot.front == null ? slot.behind : slot.front);
+        MaidLayerGroup carrierGroup = slot.front == null ? slot.behind : slot.front;
         if (carrierGroup == null) return headCarrierFrame;
         MeshAnchorFrame frame = group == CompositeOverlayGroup.EAR_FINS
                 ? carrierGroup.sideFrame(screenLeft) : carrierGroup.centerFrame;
@@ -2279,9 +2346,36 @@ final class SenLive2DModel extends CubismUserModel {
         JSONObject toJson(com.live2d.sdk.cubism.framework.model.CubismModel target)
                 throws JSONException {
             JSONArray drawableIds = new JSONArray();
+            JSONArray drawableDetails = new JSONArray();
             if (target != null) for (int drawable : drawables) {
                 if (drawable >= 0 && drawable < target.getDrawableCount()) {
-                    drawableIds.put(target.getDrawableId(drawable).getString());
+                    String drawableId = target.getDrawableId(drawable).getString();
+                    drawableIds.put(drawableId);
+                    int parentIndex = target.getDrawableParentPartIndex(drawable);
+                    JSONObject detail = new JSONObject()
+                            .put("id", drawableId)
+                            .put("render_order", target.getRenderOrders()[drawable])
+                            .put("texture_index", target.getDrawableTextureIndex(drawable))
+                            .put("direct_parent_part_id", parentIndex >= 0
+                                    && parentIndex < target.getPartCount()
+                                    ? target.getPartId(parentIndex).getString()
+                                    : JSONObject.NULL);
+                    float[] uv = target.getDrawableVertexUvs(drawable);
+                    if (uv != null && uv.length >= 2) {
+                        float minU = Float.POSITIVE_INFINITY;
+                        float minV = Float.POSITIVE_INFINITY;
+                        float maxU = Float.NEGATIVE_INFINITY;
+                        float maxV = Float.NEGATIVE_INFINITY;
+                        for (int i = 0; i + 1 < uv.length; i += 2) {
+                            minU = Math.min(minU, uv[i]);
+                            minV = Math.min(minV, uv[i + 1]);
+                            maxU = Math.max(maxU, uv[i]);
+                            maxV = Math.max(maxV, uv[i + 1]);
+                        }
+                        detail.put("uv_bounds", new JSONArray(Arrays.asList(
+                                minU, minV, maxU, maxV)));
+                    }
+                    drawableDetails.put(detail);
                 }
             }
             return new JSONObject()
@@ -2290,6 +2384,7 @@ final class SenLive2DModel extends CubismUserModel {
                     .put("minimum_render_order", minimumRenderOrder)
                     .put("maximum_render_order", maximumRenderOrder)
                     .put("drawable_ids", drawableIds)
+                    .put("drawable_details", drawableDetails)
                     .put("center_anchor", centerFrame == null
                             ? JSONObject.NULL : centerFrame.toJson())
                     .put("screen_left_anchor", screenLeftFrame == null

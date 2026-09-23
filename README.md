@@ -3,6 +3,18 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.15
+
+- Separates draw order from motion attachment for the ahoge. It is always drawn immediately in
+  front of the maid headwear while its root follows the dedicated crown/top-hair skinning section.
+- Replaces the overly broad recursive front-hair/back-hair groups with authored skinning/material
+  sections: ponytails, side locks, loose strands, crown hair, and numbered source layers can be
+  stepped independently. Equivalent colour/style branches of the same section remain merged.
+- Starts a new calibration preference generation. Confirmed scale/X/Y values are unchanged; the
+  old v0.1.14 ahoge offset `-1` is discarded and the correct headwear-front layer becomes zero.
+- Extends diagnostics with each section's direct parent Part, render order, texture-atlas index and
+  UV bounds so a remaining mismatch can be tied to one source material section precisely.
+
 ## v0.1.14
 
 - Adds coarse logical-Part layer calibration for the ahoge and each ear fin. The controls say
