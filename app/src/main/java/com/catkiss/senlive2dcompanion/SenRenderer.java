@@ -101,7 +101,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private int earSweepTraceNext;
     private int earSweepTraceCount;
     private static final int AHOGE_SWEEP_TRACE_CAPACITY = 900;
-    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][10];
+    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][12];
     private final long[] ahogeSweepTraceTime = new long[AHOGE_SWEEP_TRACE_CAPACITY];
     private int ahogeSweepTraceNext;
     private int ahogeSweepTraceCount;
@@ -280,12 +280,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             "gross_head_scale", "gross_head_angle_degrees", "root_x_clip",
                             "root_y_clip", "visible_width_clip", "direction_dx_clip",
                             "direction_dy_clip", "width_before_flex_clip",
-                            "flex_angle_degrees")))
+                            "flex_angle_degrees", "pose_shift_x_clip",
+                            "visible_center_x_clip")))
                     .put("capacity_frames", AHOGE_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", ahogeSweepTraceCount)
                     .put("samples", ahogeSamples));
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? (geometryConstraintEnabled ? "picked_hair_root_and_velocity_driven_flex"
+                    ? (geometryConstraintEnabled ? "picked_hair_root_pose_follow_and_velocity_flex"
                     : "v0.1.16_independent_face_mesh_pins")
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
@@ -316,7 +317,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("maid_hair_point", model == null || model.selectedMaidHairPointJson() == null
                             ? JSONObject.NULL : model.selectedMaidHairPointJson())
                     .put("native_mesh_overwrite", false)
-                    .put("secondary_motion", "maid_head_velocity_driven_smooth_flex")
+                    .put("secondary_motion", "maid_head_yaw_pose_follow_and_velocity_driven_flex")
+                    .put("pose_follow_over_ahoge_width", .15)
                     .put("gross_head_scale_response", geometryConstraintEnabled ? 0 : .85)
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
@@ -351,7 +353,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.25-stable-ahoge-width";
+            return "0.1.26-ahoge-horizontal-pose-follow";
         }
     }
 
@@ -895,12 +897,16 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     targetRootX - rootAfter[0], targetRootY - rootAfter[1]);
             maximumRootCorrection[1] = Math.max(maximumRootCorrection[1], lastRootCorrection);
         }
-        // The donor's neutral head has no Hair Z input in composite mode. Keep velocity-driven
-        // flex, without a persistent yaw force that stretches the silhouette at either extreme.
-        float[] boundsBeforeFlex = compositeTestMotion == CompositeTestMotion.HEAD_X_SWEEP
-                ? overlayModel.currentAhogeClipBounds(accessoryProjection) : null;
+        // A root pinned to the hair still leaves the rest of the Sen tuft nearly upright on
+        // side turns. Carry the outer meshes farther in the same direction as the picked root,
+        // proportional to this tuft's own width so zooming does not change the relative amount.
+        // The existing smooth vertex weights keep the exact root fixed and all six meshes joined.
+        float[] boundsBeforeFlex = overlayModel.currentAhogeClipBounds(accessoryProjection);
+        float poseShiftX = boundsBeforeFlex == null ? 0f
+                : model.horizontalHeadTurnSigned() * .15f
+                * (boundsBeforeFlex[2] - boundsBeforeFlex[0]);
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
-                model.horizontalHeadTurnSigned());
+                model.horizontalHeadTurnSigned(), poseShiftX);
         if (compositeTestMotion == CompositeTestMotion.HEAD_X_SWEEP) {
             float[] bounds = overlayModel.currentAhogeClipBounds(accessoryProjection);
             float[] direction = pointToClip(overlayModel, accessoryProjection,
@@ -919,6 +925,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[8] = boundsBeforeFlex == null ? Float.NaN
                         : boundsBeforeFlex[2] - boundsBeforeFlex[0];
                 sample[9] = (float) Math.toDegrees(ahogeLagAngle);
+                sample[10] = poseShiftX;
+                sample[11] = (bounds[0] + bounds[2]) * .5f;
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
                 if (validTrace) {
@@ -979,7 +987,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private void applyAhogeSecondaryMotion(CubismMatrix44 accessoryProjection,
-                                           float rootX, float rootY, float headAngle) {
+                                           float rootX, float rootY, float headAngle,
+                                           float poseShiftX) {
         float dt = Math.max(1.0f / 240.0f, Math.min(.05f, frameDeltaSeconds));
         if (staticMode || ahogeMotionResetRequested || !ahogeMotionInitialized) {
             ahogeMotionInitialized = true;
@@ -989,34 +998,33 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             previousAhogeHeadAngle = headAngle;
             ahogeLagX = ahogeLagY = ahogeLagAngle = 0f;
             ahogeLagVelocityX = ahogeLagVelocityY = ahogeLagAngularVelocity = 0f;
-            return;
+        } else {
+            float rootVelocityX = (rootX - previousAhogeRootX) / dt;
+            float rootVelocityY = (rootY - previousAhogeRootY) / dt;
+            float angularVelocity = wrapRadians(headAngle - previousAhogeHeadAngle) / dt;
+            previousAhogeRootX = rootX;
+            previousAhogeRootY = rootY;
+            previousAhogeHeadAngle = headAngle;
+
+            float targetLagX = clamp(-rootVelocityX * .045f, -.065f, .065f);
+            float targetLagY = clamp(-rootVelocityY * .040f, -.030f, .030f);
+            float targetLagAngle = clamp(-angularVelocity * .070f, -.22f, .22f);
+            float stiffness = 30f;
+            float damping = (float) Math.exp(-9f * dt);
+            ahogeLagVelocityX = (ahogeLagVelocityX
+                    + (targetLagX - ahogeLagX) * stiffness * dt) * damping;
+            ahogeLagVelocityY = (ahogeLagVelocityY
+                    + (targetLagY - ahogeLagY) * stiffness * dt) * damping;
+            ahogeLagAngularVelocity = (ahogeLagAngularVelocity
+                    + (targetLagAngle - ahogeLagAngle) * stiffness * dt) * damping;
+            ahogeLagX += ahogeLagVelocityX * dt;
+            ahogeLagY += ahogeLagVelocityY * dt;
+            ahogeLagAngle += ahogeLagAngularVelocity * dt;
+            maximumAhogeFlexAngle = Math.max(maximumAhogeFlexAngle, Math.abs(ahogeLagAngle));
         }
 
-        float rootVelocityX = (rootX - previousAhogeRootX) / dt;
-        float rootVelocityY = (rootY - previousAhogeRootY) / dt;
-        float angularVelocity = wrapRadians(headAngle - previousAhogeHeadAngle) / dt;
-        previousAhogeRootX = rootX;
-        previousAhogeRootY = rootY;
-        previousAhogeHeadAngle = headAngle;
-
-        float targetLagX = clamp(-rootVelocityX * .045f, -.065f, .065f);
-        float targetLagY = clamp(-rootVelocityY * .040f, -.030f, .030f);
-        float targetLagAngle = clamp(-angularVelocity * .070f, -.22f, .22f);
-        float stiffness = 30f;
-        float damping = (float) Math.exp(-9f * dt);
-        ahogeLagVelocityX = (ahogeLagVelocityX
-                + (targetLagX - ahogeLagX) * stiffness * dt) * damping;
-        ahogeLagVelocityY = (ahogeLagVelocityY
-                + (targetLagY - ahogeLagY) * stiffness * dt) * damping;
-        ahogeLagAngularVelocity = (ahogeLagAngularVelocity
-                + (targetLagAngle - ahogeLagAngle) * stiffness * dt) * damping;
-        ahogeLagX += ahogeLagVelocityX * dt;
-        ahogeLagY += ahogeLagVelocityY * dt;
-        ahogeLagAngle += ahogeLagAngularVelocity * dt;
-        maximumAhogeFlexAngle = Math.max(maximumAhogeFlexAngle, Math.abs(ahogeLagAngle));
-
         float[] localLag = clipVectorToModel(overlayModel, accessoryProjection,
-                ahogeLagX, ahogeLagY);
+                poseShiftX + ahogeLagX, ahogeLagY);
         if (localLag != null) {
             overlayModel.applyAhogeSecondaryMotion(
                     localLag[0], localLag[1], ahogeLagAngle);
