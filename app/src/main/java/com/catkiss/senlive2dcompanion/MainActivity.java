@@ -626,7 +626,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.23.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.24.json");
         });
     }
 

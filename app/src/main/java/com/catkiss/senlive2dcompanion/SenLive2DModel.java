@@ -1337,6 +1337,24 @@ final class SenLive2DModel extends CubismUserModel {
         return Float.isFinite(bounds[0]) ? bounds : null;
     }
 
+    /** The currently rendered six-segment ahoge silhouette, including native secondary motion. */
+    float[] currentAhogeClipBounds(CubismMatrix44 projection) {
+        if (model == null) return null;
+        boolean[] filter = compositeGroupFilters.get(CompositeOverlayGroup.AHOGE);
+        if (filter == null) return null;
+        copyMvpMatrix(projection, earBoundsMvpMatrix);
+        float[] transform = earBoundsMvpMatrix.getArray();
+        float[] bounds = emptyBounds();
+        for (int i = 0; i < Math.min(filter.length, model.getDrawableCount()); i++) {
+            if (!filter[i] || !isDrawableVisible(i)) continue;
+            float[] vertices = model.getDrawableVertices(i);
+            for (int v = 0; v + 1 < vertices.length; v += 2) {
+                addClipPoint(bounds, transform, vertices[v], vertices[v + 1]);
+            }
+        }
+        return Float.isFinite(bounds[0]) ? bounds : null;
+    }
+
     float[] neutralEarClipBounds(CubismMatrix44 projection, boolean screenLeft) {
         float[] neutral = screenLeft ? neutralLeftEarBounds : neutralRightEarBounds;
         if (neutral == null) return null;

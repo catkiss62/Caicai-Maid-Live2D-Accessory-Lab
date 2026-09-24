@@ -100,6 +100,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private final long[] earSweepTraceTime = new long[EAR_SWEEP_TRACE_CAPACITY];
     private int earSweepTraceNext;
     private int earSweepTraceCount;
+    private static final int AHOGE_SWEEP_TRACE_CAPACITY = 900;
+    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][8];
+    private final long[] ahogeSweepTraceTime = new long[AHOGE_SWEEP_TRACE_CAPACITY];
+    private int ahogeSweepTraceNext;
+    private int ahogeSweepTraceCount;
     private final float[] maximumRootCorrection = new float[2];
     private float lastEarBeforeSpan;
     private float lastEarAfterSpan;
@@ -153,6 +158,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         compositeTestMotion = motion == null ? CompositeTestMotion.LIVE : motion;
         earSweepTraceNext = 0;
         earSweepTraceCount = 0;
+        ahogeSweepTraceNext = 0;
+        ahogeSweepTraceCount = 0;
         if (model != null) model.setCompositeTestMotion(compositeTestMotion);
     }
 
@@ -160,6 +167,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         geometryConstraintEnabled = enabled;
         earSweepTraceNext = 0;
         earSweepTraceCount = 0;
+        ahogeSweepTraceNext = 0;
+        ahogeSweepTraceCount = 0;
         ahogeMotionResetRequested = true;
     }
 
@@ -258,6 +267,22 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("capacity_frames", EAR_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", earSweepTraceCount)
                     .put("samples", sweepSamples));
+            JSONArray ahogeSamples = new JSONArray();
+            for (int i = 0; i < ahogeSweepTraceCount; i++) {
+                int index = (ahogeSweepTraceNext - ahogeSweepTraceCount + i
+                        + AHOGE_SWEEP_TRACE_CAPACITY) % AHOGE_SWEEP_TRACE_CAPACITY;
+                JSONArray sample = new JSONArray().put(ahogeSweepTraceTime[index]);
+                for (float value : ahogeSweepTrace[index]) sample.put(value);
+                ahogeSamples.put(sample);
+            }
+            root.put("ahoge_left_right_sweep_trace", new JSONObject()
+                    .put("columns", new JSONArray(Arrays.asList("uptime_ms", "head_turn_signed",
+                            "gross_head_scale", "gross_head_angle_degrees", "root_x_clip",
+                            "root_y_clip", "visible_width_clip", "direction_dx_clip",
+                            "direction_dy_clip")))
+                    .put("capacity_frames", AHOGE_SWEEP_TRACE_CAPACITY)
+                    .put("captured_frames", ahogeSweepTraceCount)
+                    .put("samples", ahogeSamples));
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
                     ? (geometryConstraintEnabled ? "picked_hair_root_and_head_driven_flex"
                     : "v0.1.16_independent_face_mesh_pins")
@@ -324,7 +349,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.23-restored-pose-and-ear-sweep-trace";
+            return "0.1.24-continuous-correct-ear-turn-and-ahoge-trace";
         }
     }
 
@@ -621,9 +646,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         }
         // The width cap fixes excess separation. A side turn also carries both fins too far
         // toward the face's screen-facing side; move the pair a little in the opposite direction
-        // without changing its measured span. Restore the v0.1.21 face-parallax direction and
-        // record the sweep to distinguish an anchor jump from the donor's native ear twitch.
-        float screenTurn = model.horizontalHeadTurnSigned();
+        // without changing its measured span. The v0.1.23 sweep confirms face parallax is
+        // opposite ParamAngleX3 on every observed frame. Use that confirmed polarity all the way
+        // through frontal pose so the pair cannot jump at the former parallax threshold.
+        float screenTurn = -model.horizontalHeadTurnSigned();
         lastEarFaceParallax = 0f;
         Similarity2D grossHead = currentGrossHeadMotion(.65f, .78f, 1.22f);
         if (grossHead != null && leftNow != null && leftNeutral != null
@@ -634,9 +660,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     triangleCenterX(rightNeutral), triangleCenterY(rightNeutral));
             lastEarFaceParallax = (triangleCenterX(leftNow) + triangleCenterX(rightNow)
                     - rigidLeft[0] - rigidRight[0]) * .5f;
-            if (Math.abs(lastEarFaceParallax) > neutralSpan * .003f) {
-                screenTurn = Math.copySign(lastHeadTurn, lastEarFaceParallax);
-            }
         }
         lastEarScreenTurn = screenTurn;
         // Device feedback: the prior sign moved the fins further in the wrong screen direction.
@@ -871,6 +894,32 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         // the maid's actual turn; the Sen direction point is never forced to a maid direction.
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
                 model.horizontalHeadTurnSigned());
+        if (compositeTestMotion == CompositeTestMotion.HEAD_X_SWEEP) {
+            float[] bounds = overlayModel.currentAhogeClipBounds(accessoryProjection);
+            float[] direction = pointToClip(overlayModel, accessoryProjection,
+                    overlayModel.currentAhogeDirectionPoint());
+            Similarity2D grossHead = currentGrossHeadMotion(.85f, .70f, 1.35f);
+            if (bounds != null && direction != null && grossHead != null) {
+                float[] sample = ahogeSweepTrace[ahogeSweepTraceNext];
+                sample[0] = model.horizontalHeadTurnSigned();
+                sample[1] = (float) Math.hypot(grossHead.a, grossHead.b);
+                sample[2] = (float) Math.toDegrees(grossHead.angleRadians());
+                sample[3] = targetRootX;
+                sample[4] = targetRootY;
+                sample[5] = bounds[2] - bounds[0];
+                sample[6] = direction[0] - targetRootX;
+                sample[7] = direction[1] - targetRootY;
+                boolean validTrace = true;
+                for (float value : sample) validTrace &= Float.isFinite(value);
+                if (validTrace) {
+                    ahogeSweepTraceTime[ahogeSweepTraceNext] = android.os.SystemClock.uptimeMillis();
+                    ahogeSweepTraceNext = (ahogeSweepTraceNext + 1)
+                            % AHOGE_SWEEP_TRACE_CAPACITY;
+                    ahogeSweepTraceCount = Math.min(AHOGE_SWEEP_TRACE_CAPACITY,
+                            ahogeSweepTraceCount + 1);
+                }
+            }
+        }
     }
 
     /** The accepted v0.1.16 head path, kept intact for one-tap on-device comparison. */
