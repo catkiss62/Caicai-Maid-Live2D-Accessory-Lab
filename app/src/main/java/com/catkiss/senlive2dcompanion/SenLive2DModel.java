@@ -222,8 +222,9 @@ final class SenLive2DModel extends CubismUserModel {
     private boolean[] mainLayerRangeFilter;
     private boolean[] earFinScreenLeftFilter;
     private boolean[] earFinScreenRightFilter;
-    private boolean[] earOuterMaskBypassFilter;
-    private boolean earOuterMaskBypassEnabled = true;
+    private float tailSwaySeconds;
+    private float tailSwayTipOffset;
+    private float angryMouthGuardSeconds;
     private OverlayCalibration.AhogeShape ahogeShape =
             new OverlayCalibration.AhogeShape(1f, 1f, 0f);
     private final EnumMap<CompositeOverlayGroup, boolean[]> compositeGroupFilters =
@@ -400,6 +401,13 @@ final class SenLive2DModel extends CubismUserModel {
             }
         }
         updateScheduler.onLateUpdate(model, frameDelta);
+        // The authored angry pose crossfades from the previous face for half a second. During
+        // that transition, keep the mouth closed so an intermediate open-mouth keyform cannot
+        // flash before the intended expression settles.
+        if (angryMouthGuardSeconds > 0f) {
+            setParameter("ParamMouthOpenY", 0f);
+            angryMouthGuardSeconds = Math.max(0f, angryMouthGuardSeconds - frameDelta);
+        }
         // Outfit selection is an App-owned preset. Expressions, native motions and program
         // actions may animate pose parameters, but they must never alter the selected clothes.
         if (hasVtsBaseProfile) applyOutfitParameters(outfitPreset, null);
@@ -417,6 +425,7 @@ final class SenLive2DModel extends CubismUserModel {
 
     private void updateCompositeOverlay(float deltaSeconds) {
         float frameDelta = staticMode ? 0.0f : Math.max(0.0f, Math.min(0.05f, deltaSeconds));
+        tailSwaySeconds += frameDelta;
         // The maid and Sen do not share a compatible rigid head/body parameter space. Always
         // restore the donor's own neutral baseline and evaluate only accessory-local dynamics.
         // Root translation/rotation/scale is transferred one-way from the maid's actual meshes
@@ -441,6 +450,10 @@ final class SenLive2DModel extends CubismUserModel {
     /** Exposes the donor's authored ear twitch drive to the sweep diagnostic only. */
     float currentAccessoryEarPhysicsDrive() {
         return pendingEarPhysicsDrive;
+    }
+
+    float currentTailSwayTipOffset() {
+        return tailSwayTipOffset;
     }
 
     void setStaticMode(boolean enabled) {
@@ -545,24 +558,14 @@ final class SenLive2DModel extends CubismUserModel {
 
     void drawSenEarSide(CubismMatrix44 matrix, boolean screenLeft) {
         drawWithFilter(matrix, screenLeft
-                ? earFinScreenLeftFilter : earFinScreenRightFilter,
-                earOuterMaskBypassEnabled ? earOuterMaskBypassFilter : null);
-    }
-
-    private void drawWithFilter(CubismMatrix44 matrix, boolean[] filter) {
-        drawWithFilter(matrix, filter, null);
-    }
-
-    void setEarOuterMaskBypassEnabled(boolean enabled) {
-        earOuterMaskBypassEnabled = enabled;
+                ? earFinScreenLeftFilter : earFinScreenRightFilter);
     }
 
     void setAhogeShape(OverlayCalibration.AhogeShape shape) {
-        ahogeShape = shape == null ? new OverlayCalibration.AhogeShape(1f, 1f, 0f) : shape;
+        ahogeShape = shape == null ? new OverlayCalibration.AhogeShape(1.15f, 1.59f, -14f) : shape;
     }
 
-    private void drawWithFilter(CubismMatrix44 matrix, boolean[] filter,
-                                boolean[] maskBypassFilter) {
+    private void drawWithFilter(CubismMatrix44 matrix, boolean[] filter) {
         if (model == null || getRenderer() == null) return;
         // A frame can draw the same model several times (low layer, high layer and accessories).
         // Never multiply the caller's projection in place: doing so made every later pass apply
@@ -572,7 +575,6 @@ final class SenLive2DModel extends CubismUserModel {
         CubismMatrix44.multiply(modelMatrix.getArray(), drawMvpMatrix.getArray(),
                 drawMvpMatrix.getArray());
         CubismRendererAndroid renderer = getRenderer();
-        renderer.setDrawableMaskBypassFilter(maskBypassFilter);
         renderer.setDrawableVisibilityFilter(filter);
         renderer.setMvpMatrix(drawMvpMatrix);
         renderer.drawModel();
@@ -607,14 +609,6 @@ final class SenLive2DModel extends CubismUserModel {
         Set<Integer> ears = resolveRabbitEarDrawables(earSeeds);
         putCompositeFilter(CompositeOverlayGroup.EAR_FINS, count, ears, null);
         splitEarFinFilters(ears, count);
-        earOuterMaskBypassFilter = new boolean[count];
-        for (String id : new String[] {"ArtMesh629", "ArtMesh723"}) {
-            int index = model.getDrawableIndex(CubismFramework.getIdManager().getId(id));
-            if (index >= 0 && index < count && ears.contains(index)) {
-                earOuterMaskBypassFilter[index] = true;
-            }
-        }
-
         StringBuilder detail = new StringBuilder("Sen配件网格");
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
             if (group == CompositeOverlayGroup.GLOBAL) continue;
@@ -1541,7 +1535,14 @@ final class SenLive2DModel extends CubismUserModel {
             // on the next frame instead of leaving a fading queue entry apparently enabled.
             manager.stopAllMotions();
             activeExpressionNames.remove(name);
+            if ("1生气".equals(name)) angryMouthGuardSeconds = 0f;
             return;
+        }
+        if ("变小".equals(name)) {
+            // Only selecting the small form establishes its starting pose. The three ZIP
+            // switches retain their normal independent toggles afterwards.
+            if (!activeExpressionNames.contains("2插手")) setExpression("2插手");
+            if (!activeExpressionNames.contains("1生气")) setExpression("1生气");
         }
         String exclusivePrefix = exclusivePresetPrefix(name);
         if (!exclusivePrefix.isEmpty() || isExclusiveProp(name)) {
@@ -1552,10 +1553,12 @@ final class SenLive2DModel extends CubismUserModel {
                 CubismExpressionMotionManager activeManager = expressionManagers.get(activeName);
                 if (activeManager != null) activeManager.stopAllMotions();
                 activeExpressionNames.remove(activeName);
+                if ("1生气".equals(activeName)) angryMouthGuardSeconds = 0f;
             }
         }
         manager.startMotionPriority(motion, 3);
         activeExpressionNames.add(name);
+        if ("1生气".equals(name)) angryMouthGuardSeconds = 0.5f;
     }
 
     void resetNativePresets() {
@@ -1563,6 +1566,7 @@ final class SenLive2DModel extends CubismUserModel {
             manager.stopAllMotions();
         }
         activeExpressionNames.clear();
+        angryMouthGuardSeconds = 0f;
         transientExpressionManager.stopAllMotions();
         transientExpressionRemaining = 0.0f;
         glassesEnabled = false;
@@ -1795,6 +1799,11 @@ final class SenLive2DModel extends CubismUserModel {
                 if (rule != null && rule.fadeSeconds >= 0.0f) {
                     motion.setFadeInTime(rule.fadeSeconds);
                     motion.setFadeOutTime(rule.fadeSeconds);
+                }
+                if ("1生气".equals(name)) {
+                    // Param148 switches the authored face. Its half-second intermediate shape
+                    // briefly exposes an open mouth; enter the closed-mouth keyform directly.
+                    motion.setFadeInTime(0f);
                 }
                 expressions.put(name, motion);
                 expressionManagers.put(name, new CubismExpressionMotionManager());
@@ -2214,7 +2223,7 @@ final class SenLive2DModel extends CubismUserModel {
         if (hasCompleteAhogeAnchor()) {
             applyAnchoredAhogeTransform(ahogeDrawables);
         }
-        applyTailMirror(tailDrawables);
+        applyTailSwayAndMirror(tailDrawables);
     }
 
     private void skipWhiteShirtPosePreKeyframes() {
@@ -2432,11 +2441,32 @@ final class SenLive2DModel extends CubismUserModel {
         }
     }
 
-    private void applyTailMirror(Set<Integer> indices) {
+    private void applyTailSwayAndMirror(Set<Integer> indices) {
+        float highest = Float.NEGATIVE_INFINITY;
+        float lowest = Float.POSITIVE_INFINITY;
         for (int index : indices) {
             if (!isDrawableVisible(index)) continue;
             float[] vertices = model.getDrawableVertices(index);
-            for (int i = 0; i + 1 < vertices.length; i += 2) vertices[i] = -vertices[i];
+            for (int i = 1; i < vertices.length; i += 2) {
+                highest = Math.max(highest, vertices[i]);
+                lowest = Math.min(lowest, vertices[i]);
+            }
+        }
+        // The donor is evaluated from a neutral pose every frame, so its tail has no sustained
+        // lateral input. Bend only the tail mesh after native physics: zero at its upper root,
+        // full movement at its lower tip. The model restores the native vertices next frame.
+        float span = highest - lowest;
+        tailSwayTipOffset = staticMode || !Float.isFinite(span) || span < 1e-4f
+                ? 0f : .12f * (float) Math.sin(tailSwaySeconds * 2.0 * Math.PI * .62);
+        for (int index : indices) {
+            if (!isDrawableVisible(index)) continue;
+            float[] vertices = model.getDrawableVertices(index);
+            for (int i = 0; i + 1 < vertices.length; i += 2) {
+                float distance = span < 1e-4f ? 0f
+                        : Math.max(0f, Math.min(1f, (highest - vertices[i + 1]) / span));
+                float weight = distance * distance * (3f - 2f * distance);
+                vertices[i] = -vertices[i] + tailSwayTipOffset * weight;
+            }
         }
     }
 

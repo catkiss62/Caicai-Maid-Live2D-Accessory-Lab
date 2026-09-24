@@ -74,7 +74,7 @@ final class OverlayCalibration {
             new EnumMap<>(CompositeOverlayGroup.class);
     private EarFineTune screenLeftEar = defaultEarFineTune(true);
     private EarFineTune screenRightEar = defaultEarFineTune(false);
-    private AhogeShape ahogeShape = new AhogeShape(1f, 1f, 0f);
+    private AhogeShape ahogeShape = defaultAhogeShape();
     private int ahogeLayerOffset;
     private int screenLeftEarLayerOffset;
     private int screenRightEarLayerOffset;
@@ -227,7 +227,7 @@ final class OverlayCalibration {
         result.transforms.put(group, defaultTransform(group));
         if (group == CompositeOverlayGroup.AHOGE) {
             result.ahogeLayerOffset = 0;
-            result.ahogeShape = new AhogeShape(1f, 1f, 0f);
+            result.ahogeShape = defaultAhogeShape();
         } else if (group == CompositeOverlayGroup.EAR_FINS) {
             result.screenLeftEar = defaultEarFineTune(true);
             result.screenRightEar = defaultEarFineTune(false);
@@ -334,6 +334,11 @@ final class OverlayCalibration {
                 : new EarFineTune(1f, -.04f, .02f, 14f);
     }
 
+    private static AhogeShape defaultAhogeShape() {
+        // The user's v0.1.27 position report after adjusting the visible shape on device.
+        return new AhogeShape(1.15f, 1.59f, -14f);
+    }
+
     private static Transform defaultTransform(CompositeOverlayGroup group) {
         // Binding zero pose confirmed by the v0.1.6 on-device report. Existing installs keep their
         // saved values; reset and clean imports reproduce the same independently aligned pose.
@@ -341,7 +346,7 @@ final class OverlayCalibration {
             return new Transform(1f, 0f, .20f, true, 0f, 0f, 0f);
         }
         if (group == CompositeOverlayGroup.AHOGE) {
-            return new Transform(.88f, -.03f, -.05f, true, 0f, 0f, 0f);
+            return new Transform(1f, .01f, -.05f, true, 0f, 0f, 0f);
         }
         if (group == CompositeOverlayGroup.EAR_FINS) {
             return new Transform(1.24f, -.01f, -.33f, true, 0f, 0f, 5f);

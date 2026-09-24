@@ -65,7 +65,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile float stageTranslateX;
     private volatile float stageTranslateY;
     private volatile OverlayCalibration overlayCalibration = OverlayCalibration.defaults();
-    private boolean earOuterMaskBypassEnabled = true;
     private volatile CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private volatile CompositeOutfit compositeOutfit =
             CompositeOutfit.MAID_WITH_SEN_ACCESSORIES;
@@ -155,10 +154,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         ahogeMotionResetRequested = true;
     }
 
-    void setEarOuterMaskBypassEnabled(boolean enabled) {
-        earOuterMaskBypassEnabled = enabled;
-    }
-
     void setCompositeTestMotion(CompositeTestMotion motion) {
         compositeTestMotion = motion == null ? CompositeTestMotion.LIVE : motion;
         earSweepTraceNext = 0;
@@ -218,9 +213,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             JSONObject root = new JSONObject();
             root.put("schema", "caicai-maid-accessory-calibration-v2");
             root.put("app_version", appVersionName());
-            root.put("ear_outer_mask_bypass_enabled", earOuterMaskBypassEnabled);
-            root.put("ear_outer_mask_bypass_drawables", new org.json.JSONArray(
-                    Arrays.asList("ArtMesh629", "ArtMesh723")));
             root.put("generated_at_epoch_ms", System.currentTimeMillis());
             root.put("main_model", "caicai_maid");
             root.put("accessories", new org.json.JSONArray(
@@ -310,6 +302,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             ? "actual_drawable_outer_span_constraint" : "v0.1.16_face_mesh_right_pin")
                     .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
+            root.put("tail_motion", new JSONObject()
+                    .put("mode", "root_weighted_local_sway_after_native_physics")
+                    .put("tip_offset_model", overlayModel == null ? 0f
+                            : overlayModel.currentTailSwayTipOffset())
+                    .put("maximum_tip_offset_model", .12f));
             root.put("ear_pair_constraint", new JSONObject()
                     .put("horizontal_local_response", .28)
                     .put("vertical_local_response", .60)
@@ -361,7 +358,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.27-ear-fin-mask-ahoge-shape";
+            return "0.1.28-accessory-defaults-tail-pose";
         }
     }
 
@@ -526,7 +523,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             boolean showSen = overlayModel != null;
             if (showSen) {
                 overlayModel.setAhogeShape(overlayCalibration.getAhogeShape());
-                overlayModel.setEarOuterMaskBypassEnabled(earOuterMaskBypassEnabled);
                 overlayModel.update(delta);
             }
 

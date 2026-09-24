@@ -259,10 +259,6 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         queueRenderer(() -> renderer.setGeometryConstraintEnabled(enabled));
     }
 
-    public void setEarOuterMaskBypassEnabled(boolean enabled) {
-        queueRenderer(() -> renderer.setEarOuterMaskBypassEnabled(enabled));
-    }
-
     public void setMaidHairPoint(String anchorJson) {
         queueRenderer(() -> renderer.setMaidHairPointJson(anchorJson));
     }
