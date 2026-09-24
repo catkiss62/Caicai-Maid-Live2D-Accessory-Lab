@@ -5,6 +5,7 @@
 - 纠正 v0.1.29 对“恢复原生尾巴”的误判：只恢复 `applyTailMirror()`，没有恢复驱动网格的输入；镜像方法本身仅取负 X，不会产生运动。Sen 原项目 `SenLive2DModel.update()` 每帧在物理求解前写入 `ParamBreath = performance.getBreathValue()`；菜菜配件分支 `updateCompositeOverlay()` 自 v0.1.18 最早可读源码起一直没有写入这一值。Sen 原始 `physics3.json` 的 `PhysicsSetting71` 只有 `ParamBreath` 一项输入（权重 66），输出 8 个尾巴变形器参数 `Param_Angle_TemporaryDeformer5..12`，`cdi3.json` 逐项标记为 `[0]tail..[7]tail`。原项目的代码和模型物理链一起说明尾巴如何运动；早期菜菜版本用户确认的动态不能由镜像方法单独证明。
 - 配件分支现在沿用现有 `updateAccessoryEarOnly()` 推进的 Sen 呼吸时钟，在原生物理调用前写入原项目相同的 `ParamBreath` 值。保留女仆身体三角挂点、尾巴原生网格/镜像、呆毛及耳鳍设置，不再使用逐顶点人工摇摆。静止模式仍不推进呼吸或物理。
 - 源码与物理文件的输入/输出及调用先后已核查；构建通过后仍需真机观察尾巴实际摆动，不能把构建成功当作画面验收。
+- 远端源码提交 `35ca2558bca55dd3af540862077fe8a54ffeaa73`，构建文件名修正提交 `6678154407e5840a199bdcd249547f972028727c`。Actions [36049887379](https://github.com/catkiss62/Caicai-Maid-Live2D-Accessory-Lab/actions/runs/36049887379) 成功并上传 v0.1.30 APK；APK ZIP 结构和 CRC 检验通过，文件 3,876,803 bytes，SHA-256 `4c6f8d5fe38096c45c5cf0abe8cb3c0112769f306da4a6bcec6b8d375df71868`。真实画面尚待真机确认。
 
 ## v0.1.29（撤销额外侧推和人工尾巴摆动；待真机确认）
 
