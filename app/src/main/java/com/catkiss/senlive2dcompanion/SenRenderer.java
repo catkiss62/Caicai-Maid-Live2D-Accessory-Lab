@@ -302,11 +302,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             ? "actual_drawable_outer_span_constraint" : "v0.1.16_face_mesh_right_pin")
                     .put("tail", "maid_body_neutral_to_current_on_accessory_bind_pose")
                     .put("combined_group", false));
-            root.put("tail_motion", new JSONObject()
-                    .put("mode", "root_weighted_local_sway_after_native_physics")
-                    .put("tip_offset_model", overlayModel == null ? 0f
-                            : overlayModel.currentTailSwayTipOffset())
-                    .put("maximum_tip_offset_model", .12f));
             root.put("ear_pair_constraint", new JSONObject()
                     .put("horizontal_local_response", .28)
                     .put("vertical_local_response", .60)
@@ -323,7 +318,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             ? JSONObject.NULL : model.selectedMaidHairPointJson())
                     .put("native_mesh_overwrite", false)
                     .put("secondary_motion", "maid_head_yaw_pose_follow_and_velocity_driven_flex")
-                    .put("pose_follow_over_ahoge_width", .15)
+                    .put("pose_follow_over_ahoge_width", 0)
                     .put("gross_head_scale_response", geometryConstraintEnabled ? 0 : .85)
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
@@ -358,7 +353,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.28-accessory-defaults-tail-pose";
+            return "0.1.29-native-tail-ahoge-width";
         }
     }
 
@@ -903,16 +898,12 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     targetRootX - rootAfter[0], targetRootY - rootAfter[1]);
             maximumRootCorrection[1] = Math.max(maximumRootCorrection[1], lastRootCorrection);
         }
-        // A root pinned to the hair still leaves the rest of the Sen tuft nearly upright on
-        // side turns. Carry the outer meshes farther in the same direction as the picked root,
-        // proportional to this tuft's own width so zooming does not change the relative amount.
-        // The existing smooth vertex weights keep the exact root fixed and all six meshes joined.
+        // Measure the contour before velocity flex. Side turns no longer apply an extra
+        // sustained tip displacement: that weighted translation widened one side and narrowed
+        // the other after the user's height/rotation calibration.
         float[] boundsBeforeFlex = overlayModel.currentAhogeClipBounds(accessoryProjection);
-        float poseShiftX = boundsBeforeFlex == null ? 0f
-                : model.horizontalHeadTurnSigned() * .15f
-                * (boundsBeforeFlex[2] - boundsBeforeFlex[0]);
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
-                model.horizontalHeadTurnSigned(), poseShiftX);
+                model.horizontalHeadTurnSigned());
         if (compositeTestMotion == CompositeTestMotion.HEAD_X_SWEEP) {
             float[] bounds = overlayModel.currentAhogeClipBounds(accessoryProjection);
             float[] direction = pointToClip(overlayModel, accessoryProjection,
@@ -931,7 +922,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[8] = boundsBeforeFlex == null ? Float.NaN
                         : boundsBeforeFlex[2] - boundsBeforeFlex[0];
                 sample[9] = (float) Math.toDegrees(ahogeLagAngle);
-                sample[10] = poseShiftX;
+                sample[10] = 0f;
                 sample[11] = (bounds[0] + bounds[2]) * .5f;
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
@@ -993,8 +984,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private void applyAhogeSecondaryMotion(CubismMatrix44 accessoryProjection,
-                                           float rootX, float rootY, float headAngle,
-                                           float poseShiftX) {
+                                           float rootX, float rootY, float headAngle) {
         float dt = Math.max(1.0f / 240.0f, Math.min(.05f, frameDeltaSeconds));
         if (staticMode || ahogeMotionResetRequested || !ahogeMotionInitialized) {
             ahogeMotionInitialized = true;
@@ -1030,7 +1020,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         }
 
         float[] localLag = clipVectorToModel(overlayModel, accessoryProjection,
-                poseShiftX + ahogeLagX, ahogeLagY);
+                ahogeLagX, ahogeLagY);
         if (localLag != null) {
             overlayModel.applyAhogeSecondaryMotion(
                     localLag[0], localLag[1], ahogeLagAngle);

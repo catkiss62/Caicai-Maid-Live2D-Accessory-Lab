@@ -222,8 +222,6 @@ final class SenLive2DModel extends CubismUserModel {
     private boolean[] mainLayerRangeFilter;
     private boolean[] earFinScreenLeftFilter;
     private boolean[] earFinScreenRightFilter;
-    private float tailSwaySeconds;
-    private float tailSwayTipOffset;
     private float angryMouthGuardSeconds;
     private OverlayCalibration.AhogeShape ahogeShape =
             new OverlayCalibration.AhogeShape(1f, 1f, 0f);
@@ -425,7 +423,6 @@ final class SenLive2DModel extends CubismUserModel {
 
     private void updateCompositeOverlay(float deltaSeconds) {
         float frameDelta = staticMode ? 0.0f : Math.max(0.0f, Math.min(0.05f, deltaSeconds));
-        tailSwaySeconds += frameDelta;
         // The maid and Sen do not share a compatible rigid head/body parameter space. Always
         // restore the donor's own neutral baseline and evaluate only accessory-local dynamics.
         // Root translation/rotation/scale is transferred one-way from the maid's actual meshes
@@ -450,10 +447,6 @@ final class SenLive2DModel extends CubismUserModel {
     /** Exposes the donor's authored ear twitch drive to the sweep diagnostic only. */
     float currentAccessoryEarPhysicsDrive() {
         return pendingEarPhysicsDrive;
-    }
-
-    float currentTailSwayTipOffset() {
-        return tailSwayTipOffset;
     }
 
     void setStaticMode(boolean enabled) {
@@ -1536,6 +1529,10 @@ final class SenLive2DModel extends CubismUserModel {
             manager.stopAllMotions();
             activeExpressionNames.remove(name);
             if ("1生气".equals(name)) angryMouthGuardSeconds = 0f;
+            if ("变小".equals(name)) {
+                stopExpressionIfActive("2插手");
+                stopExpressionIfActive("1生气");
+            }
             return;
         }
         if ("变小".equals(name)) {
@@ -1559,6 +1556,13 @@ final class SenLive2DModel extends CubismUserModel {
         manager.startMotionPriority(motion, 3);
         activeExpressionNames.add(name);
         if ("1生气".equals(name)) angryMouthGuardSeconds = 0.5f;
+    }
+
+    private void stopExpressionIfActive(String name) {
+        if (!activeExpressionNames.remove(name)) return;
+        CubismExpressionMotionManager manager = expressionManagers.get(name);
+        if (manager != null) manager.stopAllMotions();
+        if ("1生气".equals(name)) angryMouthGuardSeconds = 0f;
     }
 
     void resetNativePresets() {
@@ -2223,7 +2227,7 @@ final class SenLive2DModel extends CubismUserModel {
         if (hasCompleteAhogeAnchor()) {
             applyAnchoredAhogeTransform(ahogeDrawables);
         }
-        applyTailSwayAndMirror(tailDrawables);
+        applyTailMirror(tailDrawables);
     }
 
     private void skipWhiteShirtPosePreKeyframes() {
@@ -2441,32 +2445,11 @@ final class SenLive2DModel extends CubismUserModel {
         }
     }
 
-    private void applyTailSwayAndMirror(Set<Integer> indices) {
-        float highest = Float.NEGATIVE_INFINITY;
-        float lowest = Float.POSITIVE_INFINITY;
+    private void applyTailMirror(Set<Integer> indices) {
         for (int index : indices) {
             if (!isDrawableVisible(index)) continue;
             float[] vertices = model.getDrawableVertices(index);
-            for (int i = 1; i < vertices.length; i += 2) {
-                highest = Math.max(highest, vertices[i]);
-                lowest = Math.min(lowest, vertices[i]);
-            }
-        }
-        // The donor is evaluated from a neutral pose every frame, so its tail has no sustained
-        // lateral input. Bend only the tail mesh after native physics: zero at its upper root,
-        // full movement at its lower tip. The model restores the native vertices next frame.
-        float span = highest - lowest;
-        tailSwayTipOffset = staticMode || !Float.isFinite(span) || span < 1e-4f
-                ? 0f : .12f * (float) Math.sin(tailSwaySeconds * 2.0 * Math.PI * .62);
-        for (int index : indices) {
-            if (!isDrawableVisible(index)) continue;
-            float[] vertices = model.getDrawableVertices(index);
-            for (int i = 0; i + 1 < vertices.length; i += 2) {
-                float distance = span < 1e-4f ? 0f
-                        : Math.max(0f, Math.min(1f, (highest - vertices[i + 1]) / span));
-                float weight = distance * distance * (3f - 2f * distance);
-                vertices[i] = -vertices[i] + tailSwayTipOffset * weight;
-            }
+            for (int i = 0; i + 1 < vertices.length; i += 2) vertices[i] = -vertices[i];
         }
     }
 
