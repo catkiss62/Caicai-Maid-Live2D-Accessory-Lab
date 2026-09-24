@@ -3,6 +3,15 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.23
+
+- Restores the exact v0.1.21 ear-pair screen-shift rule after the device found v0.1.22
+  placed both ears too far outward in opposite head turns.
+- Removes v0.1.22's top-hair scale/rotation trial: it widened the ahoge on right turns
+  and narrowed it on left turns. The hand-picked root and v0.1.21 secondary motion remain.
+- Exports up to 900 consecutive frames of left/right sweep ear positions, chosen direction,
+  head turn, face parallax, and native ear twitch drive to locate a brief frontal jerk.
+
 ## v0.1.22
 
 - Uses the continuous signed maid head turn for the ear pair's shared screen shift. The

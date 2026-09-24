@@ -302,6 +302,9 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         diagnostic.addView(stageAdjust, weighted());
         diagnostic.addView(actionButton("还原整体", this::resetStage), weighted());
         panel.addView(diagnostic);
+        panel.addView(text("排查耳鳍颤抖：保持实际网格校正开启，点击“左右大幅”运行两三轮，"
+                        + "让动作继续时直接导出位置诊断 JSON。报告保存最近 900 帧。",
+                9, Color.rgb(180, 159, 199)));
         panel.addView(text("点击模型会触发“点击”预设；完全静止时不会触发。"
                         + "图层以明确的‘往前/往后’按钮校准，诊断会记录实际 Part 与固定三角。",
                 9, Color.rgb(180, 159, 199)));
@@ -623,7 +626,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.21.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.23.json");
         });
     }
 
@@ -645,7 +648,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 if (output == null) throw new IOException("无法打开导出文件");
                 output.write(report.getBytes(StandardCharsets.UTF_8));
                 output.flush();
-                runOnUiThread(() -> toast("诊断 JSON 已导出，请连同静止截图发回来"));
+                runOnUiThread(() -> toast("诊断 JSON 已导出；请发送文件，能录到颤抖可附短视频"));
             } catch (Throwable error) {
                 runOnUiThread(() -> toast("导出失败：" + readable(error)));
             }

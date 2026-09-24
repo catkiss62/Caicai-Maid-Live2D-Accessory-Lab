@@ -11,6 +11,7 @@ import com.live2d.sdk.cubism.framework.math.CubismMatrix44;
 import com.live2d.sdk.cubism.framework.rendering.android.CubismShaderAndroid;
 
 import org.json.JSONException;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -93,9 +94,12 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private final float[] maximumEarCorrection = new float[2];
     private float maximumEarSharedShift;
     private float maximumAhogeFlexAngle;
-    private float lastAhogeHairPoseScale = 1f;
-    private float lastAhogeHairPoseAngle;
-    private float maximumAhogeHairPoseAngle;
+    // Every frame of the most recent left/right sweep, including frontal crossings.
+    private static final int EAR_SWEEP_TRACE_CAPACITY = 900;
+    private final float[][] earSweepTrace = new float[EAR_SWEEP_TRACE_CAPACITY][8];
+    private final long[] earSweepTraceTime = new long[EAR_SWEEP_TRACE_CAPACITY];
+    private int earSweepTraceNext;
+    private int earSweepTraceCount;
     private final float[] maximumRootCorrection = new float[2];
     private float lastEarBeforeSpan;
     private float lastEarAfterSpan;
@@ -147,11 +151,15 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     void setCompositeTestMotion(CompositeTestMotion motion) {
         compositeTestMotion = motion == null ? CompositeTestMotion.LIVE : motion;
+        earSweepTraceNext = 0;
+        earSweepTraceCount = 0;
         if (model != null) model.setCompositeTestMotion(compositeTestMotion);
     }
 
     void setGeometryConstraintEnabled(boolean enabled) {
         geometryConstraintEnabled = enabled;
+        earSweepTraceNext = 0;
+        earSweepTraceCount = 0;
         ahogeMotionResetRequested = true;
     }
 
@@ -227,11 +235,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("root_to_hair_target_before_clip", lastRootBeforeGap)
                     .put("root_to_hair_target_after_clip", lastRootCorrection)
                     .put("ahoge_flex_angle_degrees", (float) Math.toDegrees(ahogeLagAngle))
-                    .put("ahoge_hair_pose_relative_scale", lastAhogeHairPoseScale)
-                    .put("ahoge_hair_pose_relative_angle_degrees",
-                            (float) Math.toDegrees(lastAhogeHairPoseAngle))
-                    .put("maximum_ahoge_hair_pose_relative_angle_degrees",
-                            (float) Math.toDegrees(maximumAhogeHairPoseAngle))
                     .put("maximum_ahoge_flex_angle_degrees", (float) Math.toDegrees(maximumAhogeFlexAngle))
                     .put("maximum_root_gap_baseline_clip", maximumRootCorrection[0])
                     .put("maximum_root_gap_new_clip", maximumRootCorrection[1])
@@ -239,6 +242,22 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("maximum_near_root_vertex_correction_new_model", 0)
                     .put("ear_measurement_failures", earMeasurementFailures)
                     .put("ahoge_hair_fallback_frames", ahogeHairFallbackFrames));
+            JSONArray sweepSamples = new JSONArray();
+            for (int i = 0; i < earSweepTraceCount; i++) {
+                int index = (earSweepTraceNext - earSweepTraceCount + i
+                        + EAR_SWEEP_TRACE_CAPACITY) % EAR_SWEEP_TRACE_CAPACITY;
+                JSONArray sample = new JSONArray().put(earSweepTraceTime[index]);
+                for (float value : earSweepTrace[index]) sample.put(value);
+                sweepSamples.put(sample);
+            }
+            root.put("ear_left_right_sweep_trace", new JSONObject()
+                    .put("columns", new JSONArray(Arrays.asList("uptime_ms", "head_turn_signed",
+                            "face_parallax_clip", "chosen_screen_turn", "shared_shift_clip",
+                            "left_center_after_clip", "right_center_after_clip",
+                            "outer_span_after_clip", "sen_native_ear_drive")))
+                    .put("capacity_frames", EAR_SWEEP_TRACE_CAPACITY)
+                    .put("captured_frames", earSweepTraceCount)
+                    .put("samples", sweepSamples));
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
                     ? (geometryConstraintEnabled ? "picked_hair_root_and_head_driven_flex"
                     : "v0.1.16_independent_face_mesh_pins")
@@ -305,7 +324,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.21-ear-direction-and-sen-stage-gestures";
+            return "0.1.23-restored-pose-and-ear-sweep-trace";
         }
     }
 
@@ -602,9 +621,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         }
         // The width cap fixes excess separation. A side turn also carries both fins too far
         // toward the face's screen-facing side; move the pair a little in the opposite direction
-        // without changing its measured span. Keep the sign tied to the continuous head parameter.
-        // Face-mesh parallax crosses zero independently of the head angle; switching sign at a
-        // parallax threshold made the entire pair jump during a left/right sweep.
+        // without changing its measured span. Restore the v0.1.21 face-parallax direction and
+        // record the sweep to distinguish an anchor jump from the donor's native ear twitch.
         float screenTurn = model.horizontalHeadTurnSigned();
         lastEarFaceParallax = 0f;
         Similarity2D grossHead = currentGrossHeadMotion(.65f, .78f, 1.22f);
@@ -616,6 +634,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     triangleCenterX(rightNeutral), triangleCenterY(rightNeutral));
             lastEarFaceParallax = (triangleCenterX(leftNow) + triangleCenterX(rightNow)
                     - rigidLeft[0] - rigidRight[0]) * .5f;
+            if (Math.abs(lastEarFaceParallax) > neutralSpan * .003f) {
+                screenTurn = Math.copySign(lastHeadTurn, lastEarFaceParallax);
+            }
         }
         lastEarScreenTurn = screenTurn;
         // Device feedback: the prior sign moved the fins further in the wrong screen direction.
@@ -643,6 +664,25 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             lastEarRightAfterX = (afterRight[0] + afterRight[2]) * .5f;
             lastEarMeasuredSharedShift = (lastEarLeftAfterX - lastEarLeftBeforeX
                     + lastEarRightAfterX - lastEarRightBeforeX) * .5f;
+            if (geometryConstraintEnabled
+                    && compositeTestMotion == CompositeTestMotion.HEAD_X_SWEEP) {
+                float[] sample = earSweepTrace[earSweepTraceNext];
+                sample[0] = model.horizontalHeadTurnSigned();
+                sample[1] = lastEarFaceParallax;
+                sample[2] = lastEarScreenTurn;
+                sample[3] = lastEarSharedShift;
+                sample[4] = lastEarLeftAfterX;
+                sample[5] = lastEarRightAfterX;
+                sample[6] = lastEarAfterSpan;
+                sample[7] = overlayModel.currentAccessoryEarPhysicsDrive();
+                boolean validTrace = true;
+                for (float value : sample) validTrace &= Float.isFinite(value);
+                if (validTrace) {
+                    earSweepTraceTime[earSweepTraceNext] = android.os.SystemClock.uptimeMillis();
+                    earSweepTraceNext = (earSweepTraceNext + 1) % EAR_SWEEP_TRACE_CAPACITY;
+                    earSweepTraceCount = Math.min(EAR_SWEEP_TRACE_CAPACITY, earSweepTraceCount + 1);
+                }
+            }
         }
         int index = geometryConstraintEnabled ? 1 : 0;
         geometryFrames[index]++;
@@ -820,11 +860,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         overlayModel.applyClipTransform(accessoryProjection,
                 new Similarity2D(1f, 0f, targetRootX - rootBefore[0],
                         targetRootY - rootBefore[1]).toMatrix());
-        // The root is already locked to the hand-picked point. Follow the orientation and
-        // perspective of the nearby top-hair carrier, relative to the old
-        // whole-head motion. Apply one bounded transform to all six donor meshes about the root;
-        // changing vertices separately can split or freeze the lower strand.
-        applyMaidHairPoseAroundRoot(accessoryProjection, targetRootX, targetRootY);
         float[] rootAfter = pointToClip(overlayModel, accessoryProjection,
                 overlayModel.currentAhogeRootPoint());
         if (rootAfter != null) {
@@ -836,37 +871,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         // the maid's actual turn; the Sen direction point is never forced to a maid direction.
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
                 model.horizontalHeadTurnSigned());
-    }
-
-    private void applyMaidHairPoseAroundRoot(CubismMatrix44 accessoryProjection,
-                                             float rootX, float rootY) {
-        lastAhogeHairPoseScale = 1f;
-        lastAhogeHairPoseAngle = 0f;
-        float[] hairNeutral = triangleToClip(model, maidProjection,
-                model.neutralCarrierTriangle(CompositeOverlayGroup.AHOGE));
-        float[] hairNow = triangleToClip(model, maidProjection,
-                model.currentCarrierTriangle(CompositeOverlayGroup.AHOGE));
-        Similarity2D rigidHead = currentGrossHeadMotion(.85f, .70f, 1.35f);
-        if (hairNeutral == null || hairNow == null || rigidHead == null) return;
-        Similarity2D hairMotion = Similarity2D.betweenTriangle(
-                hairNeutral, hairNow, .50f, 1.80f);
-        float headScale = (float) Math.hypot(rigidHead.a, rigidHead.b);
-        float hairScale = (float) Math.hypot(hairMotion.a, hairMotion.b);
-        if (!Float.isFinite(headScale) || !Float.isFinite(hairScale)
-                || headScale < 1e-5f) return;
-        // Let the selected hair section contribute visibly, but bound departures from the
-        // already proven face-following pose. Both factors are exactly identity at neutral.
-        float scale = clamp(1f + .65f * (hairScale / headScale - 1f), .78f, 1.22f);
-        float angle = clamp(.65f * wrapRadians(
-                hairMotion.angleRadians() - rigidHead.angleRadians()), -.18f, .18f);
-        float a = scale * (float) Math.cos(angle);
-        float b = scale * (float) Math.sin(angle);
-        overlayModel.applyClipTransform(accessoryProjection,
-                new Similarity2D(a, b, rootX - a * rootX + b * rootY,
-                        rootY - b * rootX - a * rootY).toMatrix());
-        lastAhogeHairPoseScale = scale;
-        lastAhogeHairPoseAngle = angle;
-        maximumAhogeHairPoseAngle = Math.max(maximumAhogeHairPoseAngle, Math.abs(angle));
     }
 
     /** The accepted v0.1.16 head path, kept intact for one-tap on-device comparison. */

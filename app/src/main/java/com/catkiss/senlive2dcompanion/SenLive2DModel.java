@@ -434,6 +434,11 @@ final class SenLive2DModel extends CubismUserModel {
         applyRuntimeGeometry();
     }
 
+    /** Exposes the donor's authored ear twitch drive to the sweep diagnostic only. */
+    float currentAccessoryEarPhysicsDrive() {
+        return pendingEarPhysicsDrive;
+    }
+
     void setStaticMode(boolean enabled) {
         if (staticMode == enabled) return;
         staticMode = enabled;
