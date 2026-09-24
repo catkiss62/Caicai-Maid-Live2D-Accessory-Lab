@@ -65,6 +65,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile float stageTranslateX;
     private volatile float stageTranslateY;
     private volatile OverlayCalibration overlayCalibration = OverlayCalibration.defaults();
+    private boolean earOuterMaskBypassEnabled = true;
     private volatile CompositeTestMotion compositeTestMotion = CompositeTestMotion.LIVE;
     private volatile CompositeOutfit compositeOutfit =
             CompositeOutfit.MAID_WITH_SEN_ACCESSORIES;
@@ -154,6 +155,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         ahogeMotionResetRequested = true;
     }
 
+    void setEarOuterMaskBypassEnabled(boolean enabled) {
+        earOuterMaskBypassEnabled = enabled;
+    }
+
     void setCompositeTestMotion(CompositeTestMotion motion) {
         compositeTestMotion = motion == null ? CompositeTestMotion.LIVE : motion;
         earSweepTraceNext = 0;
@@ -213,6 +218,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             JSONObject root = new JSONObject();
             root.put("schema", "caicai-maid-accessory-calibration-v2");
             root.put("app_version", appVersionName());
+            root.put("ear_outer_mask_bypass_enabled", earOuterMaskBypassEnabled);
+            root.put("ear_outer_mask_bypass_drawables", new org.json.JSONArray(
+                    Arrays.asList("ArtMesh629", "ArtMesh723")));
             root.put("generated_at_epoch_ms", System.currentTimeMillis());
             root.put("main_model", "caicai_maid");
             root.put("accessories", new org.json.JSONArray(
@@ -353,7 +361,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.26-ahoge-horizontal-pose-follow";
+            return "0.1.27-ear-fin-mask-ahoge-shape";
         }
     }
 
@@ -517,6 +525,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             model.update(delta);
             boolean showSen = overlayModel != null;
             if (showSen) {
+                overlayModel.setAhogeShape(overlayCalibration.getAhogeShape());
+                overlayModel.setEarOuterMaskBypassEnabled(earOuterMaskBypassEnabled);
                 overlayModel.update(delta);
             }
 

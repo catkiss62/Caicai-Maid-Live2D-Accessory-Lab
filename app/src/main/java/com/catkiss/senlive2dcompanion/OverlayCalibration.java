@@ -26,6 +26,23 @@ final class OverlayCalibration {
         }
     }
 
+    static final class AhogeShape {
+        final float width;
+        final float height;
+        final float rotation;
+
+        AhogeShape(float width, float height, float rotation) {
+            this.width = clamp(width, .55f, 1.65f);
+            this.height = clamp(height, .55f, 1.65f);
+            this.rotation = clamp(rotation, -45f, 45f);
+        }
+
+        JSONObject toJson() throws JSONException {
+            return new JSONObject().put("width", width).put("height", height)
+                    .put("rotation", rotation);
+        }
+    }
+
     static final class Transform {
         final float scale;
         final float x;
@@ -55,15 +72,16 @@ final class OverlayCalibration {
 
     private final EnumMap<CompositeOverlayGroup, Transform> transforms =
             new EnumMap<>(CompositeOverlayGroup.class);
-    private EarFineTune screenLeftEar = defaultEarFineTune();
-    private EarFineTune screenRightEar = defaultEarFineTune();
+    private EarFineTune screenLeftEar = defaultEarFineTune(true);
+    private EarFineTune screenRightEar = defaultEarFineTune(false);
+    private AhogeShape ahogeShape = new AhogeShape(1f, 1f, 0f);
     private int ahogeLayerOffset;
     private int screenLeftEarLayerOffset;
     private int screenRightEarLayerOffset;
 
     private OverlayCalibration() {
-        screenLeftEarLayerOffset = -1;
-        screenRightEarLayerOffset = -1;
+        screenLeftEarLayerOffset = -3;
+        screenRightEarLayerOffset = 0;
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
             transforms.put(group, defaultTransform(group));
         }
@@ -89,16 +107,23 @@ final class OverlayCalibration {
                         (float) item.optDouble("pair_rotation", 0.0)));
             }
             result.screenLeftEar = earFineTuneFromJson(
-                    root.optJSONObject("ear_fins_screen_left"));
+                    root.optJSONObject("ear_fins_screen_left"), true);
             result.screenRightEar = earFineTuneFromJson(
-                    root.optJSONObject("ear_fins_screen_right"));
+                    root.optJSONObject("ear_fins_screen_right"), false);
+            JSONObject shape = root.optJSONObject("ahoge_shape");
+            if (shape != null) {
+                result.ahogeShape = new AhogeShape(
+                        (float) shape.optDouble("width", 1f),
+                        (float) shape.optDouble("height", 1f),
+                        (float) shape.optDouble("rotation", 0f));
+            }
             JSONObject layers = root.optJSONObject("part_layer_offsets");
             if (layers != null) {
                 result.ahogeLayerOffset = clampLayerOffset(layers.optInt("ahoge", 0));
                 result.screenLeftEarLayerOffset = clampLayerOffset(
-                        layers.optInt("ear_fins_screen_left", -1));
+                        layers.optInt("ear_fins_screen_left", -3));
                 result.screenRightEarLayerOffset = clampLayerOffset(
-                        layers.optInt("ear_fins_screen_right", -1));
+                        layers.optInt("ear_fins_screen_right", 0));
             }
         } catch (JSONException ignored) { }
         return result;
@@ -125,6 +150,16 @@ final class OverlayCalibration {
         return result;
     }
 
+    OverlayCalibration withAhogeShapeDelta(float widthDelta, float heightDelta,
+                                           float rotationDelta) {
+        OverlayCalibration result = copy();
+        result.ahogeShape = new AhogeShape(ahogeShape.width + widthDelta,
+                ahogeShape.height + heightDelta, ahogeShape.rotation + rotationDelta);
+        return result;
+    }
+
+    AhogeShape getAhogeShape() { return ahogeShape; }
+
     OverlayCalibration withEarSideDelta(boolean screenLeft,
                                         float scaleDelta, float xDelta,
                                         float yDelta, float rotationDelta) {
@@ -140,11 +175,11 @@ final class OverlayCalibration {
     OverlayCalibration resetEarSide(boolean screenLeft) {
         OverlayCalibration result = copy();
         if (screenLeft) {
-            result.screenLeftEar = defaultEarFineTune();
-            result.screenLeftEarLayerOffset = -1;
+            result.screenLeftEar = defaultEarFineTune(true);
+            result.screenLeftEarLayerOffset = -3;
         } else {
-            result.screenRightEar = defaultEarFineTune();
-            result.screenRightEarLayerOffset = -1;
+            result.screenRightEar = defaultEarFineTune(false);
+            result.screenRightEarLayerOffset = 0;
         }
         return result;
     }
@@ -192,9 +227,12 @@ final class OverlayCalibration {
         result.transforms.put(group, defaultTransform(group));
         if (group == CompositeOverlayGroup.AHOGE) {
             result.ahogeLayerOffset = 0;
+            result.ahogeShape = new AhogeShape(1f, 1f, 0f);
         } else if (group == CompositeOverlayGroup.EAR_FINS) {
-            result.screenLeftEarLayerOffset = -1;
-            result.screenRightEarLayerOffset = -1;
+            result.screenLeftEar = defaultEarFineTune(true);
+            result.screenRightEar = defaultEarFineTune(false);
+            result.screenLeftEarLayerOffset = -3;
+            result.screenRightEarLayerOffset = 0;
         }
         return result;
     }
@@ -231,6 +269,7 @@ final class OverlayCalibration {
         }
         root.put("ear_fins_screen_left", screenLeftEar.toJson());
         root.put("ear_fins_screen_right", screenRightEar.toJson());
+        root.put("ahoge_shape", ahogeShape.toJson());
         root.put("part_layer_offsets", new JSONObject()
                 .put("ahoge", ahogeLayerOffset)
                 .put("ear_fins_screen_left", screenLeftEarLayerOffset)
@@ -261,7 +300,10 @@ final class OverlayCalibration {
         }
         if (group == CompositeOverlayGroup.AHOGE) {
             return base + String.format(Locale.ROOT,
-                    "\n部件图层偏移：%+d", ahogeLayerOffset);
+                    "\n宽度 %.2f · 高度 %.2f · 围绕根点旋转 %+.0f°"
+                            + "\n部件图层偏移：%+d",
+                    ahogeShape.width, ahogeShape.height, ahogeShape.rotation,
+                    ahogeLayerOffset);
         }
         return base;
     }
@@ -272,24 +314,24 @@ final class OverlayCalibration {
         result.transforms.putAll(transforms);
         result.screenLeftEar = screenLeftEar;
         result.screenRightEar = screenRightEar;
+        result.ahogeShape = ahogeShape;
         result.ahogeLayerOffset = ahogeLayerOffset;
         result.screenLeftEarLayerOffset = screenLeftEarLayerOffset;
         result.screenRightEarLayerOffset = screenRightEarLayerOffset;
         return result;
     }
 
-    private static EarFineTune earFineTuneFromJson(JSONObject object) {
-        if (object == null) return defaultEarFineTune();
+    private static EarFineTune earFineTuneFromJson(JSONObject object, boolean screenLeft) {
+        if (object == null) return defaultEarFineTune(screenLeft);
         return new EarFineTune((float) object.optDouble("scale", 1.0),
                 (float) object.optDouble("x", 0.0),
                 (float) object.optDouble("y", 0.0),
                 (float) object.optDouble("rotation", 0.0));
     }
 
-    private static EarFineTune defaultEarFineTune() {
-        // Identity is essential: splitting the native pair must not move the confirmed v0.1.12
-        // neutral placement by even one calibration step.
-        return new EarFineTune(1f, 0f, 0f, 0f);
+    private static EarFineTune defaultEarFineTune(boolean screenLeft) {
+        return screenLeft ? new EarFineTune(1f, .05f, 0f, -9f)
+                : new EarFineTune(1f, -.04f, .02f, 14f);
     }
 
     private static Transform defaultTransform(CompositeOverlayGroup group) {
@@ -302,7 +344,7 @@ final class OverlayCalibration {
             return new Transform(.88f, -.03f, -.05f, true, 0f, 0f, 0f);
         }
         if (group == CompositeOverlayGroup.EAR_FINS) {
-            return new Transform(1.24f, -.01f, -.29f, true, 0f, 0f, 5f);
+            return new Transform(1.24f, -.01f, -.33f, true, 0f, 0f, 5f);
         }
         if (group == CompositeOverlayGroup.TAIL) {
             return new Transform(1.00f, .02f, -.24f, true, 0f, 0f, 0f);

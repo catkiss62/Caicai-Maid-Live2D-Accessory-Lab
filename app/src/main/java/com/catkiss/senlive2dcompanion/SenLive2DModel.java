@@ -222,6 +222,10 @@ final class SenLive2DModel extends CubismUserModel {
     private boolean[] mainLayerRangeFilter;
     private boolean[] earFinScreenLeftFilter;
     private boolean[] earFinScreenRightFilter;
+    private boolean[] earOuterMaskBypassFilter;
+    private boolean earOuterMaskBypassEnabled = true;
+    private OverlayCalibration.AhogeShape ahogeShape =
+            new OverlayCalibration.AhogeShape(1f, 1f, 0f);
     private final EnumMap<CompositeOverlayGroup, boolean[]> compositeGroupFilters =
             new EnumMap<>(CompositeOverlayGroup.class);
     private final Map<String, Set<String>> rabbitEarDiscoveryHits = new LinkedHashMap<>();
@@ -541,10 +545,24 @@ final class SenLive2DModel extends CubismUserModel {
 
     void drawSenEarSide(CubismMatrix44 matrix, boolean screenLeft) {
         drawWithFilter(matrix, screenLeft
-                ? earFinScreenLeftFilter : earFinScreenRightFilter);
+                ? earFinScreenLeftFilter : earFinScreenRightFilter,
+                earOuterMaskBypassEnabled ? earOuterMaskBypassFilter : null);
     }
 
     private void drawWithFilter(CubismMatrix44 matrix, boolean[] filter) {
+        drawWithFilter(matrix, filter, null);
+    }
+
+    void setEarOuterMaskBypassEnabled(boolean enabled) {
+        earOuterMaskBypassEnabled = enabled;
+    }
+
+    void setAhogeShape(OverlayCalibration.AhogeShape shape) {
+        ahogeShape = shape == null ? new OverlayCalibration.AhogeShape(1f, 1f, 0f) : shape;
+    }
+
+    private void drawWithFilter(CubismMatrix44 matrix, boolean[] filter,
+                                boolean[] maskBypassFilter) {
         if (model == null || getRenderer() == null) return;
         // A frame can draw the same model several times (low layer, high layer and accessories).
         // Never multiply the caller's projection in place: doing so made every later pass apply
@@ -554,6 +572,7 @@ final class SenLive2DModel extends CubismUserModel {
         CubismMatrix44.multiply(modelMatrix.getArray(), drawMvpMatrix.getArray(),
                 drawMvpMatrix.getArray());
         CubismRendererAndroid renderer = getRenderer();
+        renderer.setDrawableMaskBypassFilter(maskBypassFilter);
         renderer.setDrawableVisibilityFilter(filter);
         renderer.setMvpMatrix(drawMvpMatrix);
         renderer.drawModel();
@@ -588,6 +607,13 @@ final class SenLive2DModel extends CubismUserModel {
         Set<Integer> ears = resolveRabbitEarDrawables(earSeeds);
         putCompositeFilter(CompositeOverlayGroup.EAR_FINS, count, ears, null);
         splitEarFinFilters(ears, count);
+        earOuterMaskBypassFilter = new boolean[count];
+        for (String id : new String[] {"ArtMesh629", "ArtMesh723"}) {
+            int index = model.getDrawableIndex(CubismFramework.getIdManager().getId(id));
+            if (index >= 0 && index < count && ears.contains(index)) {
+                earOuterMaskBypassFilter[index] = true;
+            }
+        }
 
         StringBuilder detail = new StringBuilder("Sen配件网格");
         for (CompositeOverlayGroup group : CompositeOverlayGroup.values()) {
@@ -2313,9 +2339,12 @@ final class SenLive2DModel extends CubismUserModel {
         float perpendicularX = -axisY;
         float perpendicularY = axisX;
         float overall = SenRenderOptions.AHOGE_SCALE_PERCENT / 100.0f;
-        float lengthScale = overall * SenRenderOptions.AHOGE_LENGTH_PERCENT / 100.0f;
-        float widthScale = overall * SenRenderOptions.AHOGE_WIDTH_PERCENT / 100.0f;
-        double radians = Math.toRadians(SenRenderOptions.AHOGE_ROTATION_DEGREES);
+        float lengthScale = overall * SenRenderOptions.AHOGE_LENGTH_PERCENT / 100.0f
+                * ahogeShape.height;
+        float widthScale = overall * SenRenderOptions.AHOGE_WIDTH_PERCENT / 100.0f
+                * ahogeShape.width;
+        double radians = Math.toRadians(SenRenderOptions.AHOGE_ROTATION_DEGREES
+                + ahogeShape.rotation);
         float cos = (float) Math.cos(radians);
         float sin = (float) Math.sin(radians);
         float targetRootX = root[0] + SenRenderOptions.AHOGE_OFFSET_X;

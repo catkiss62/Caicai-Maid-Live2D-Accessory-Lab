@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.21 · 耳鳍方向与整体调整";
+    private static final String VERSION = "v0.1.27 · 耳鳍蒙版与呆毛外形";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
@@ -69,6 +69,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     private String pendingExportReport;
     private boolean staticMode;
     private boolean geometryConstraintEnabled = true;
+    private boolean earOuterMaskBypassEnabled = true;
     private boolean stageAdjustmentEnabled;
     private boolean pickingMaidHairPoint;
     private Button hairPickButton;
@@ -103,8 +104,10 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 prefs.getString("ear_adjustment_target", EarAdjustmentTarget.PAIR.id));
         staticMode = prefs.getBoolean("static_mode", false);
         geometryConstraintEnabled = prefs.getBoolean("geometry_constraint_enabled", true);
+        earOuterMaskBypassEnabled = prefs.getBoolean("ear_outer_mask_bypass_enabled", true);
         buildUi();
         companionView.setGeometryConstraintEnabled(geometryConstraintEnabled);
+        companionView.setEarOuterMaskBypassEnabled(earOuterMaskBypassEnabled);
         companionView.setMaidHairPoint(prefs.getString(HAIR_POINT_KEY, ""));
         loadModels();
     }
@@ -172,6 +175,18 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 new LinearLayout.LayoutParams(0, dp(42), 2f));
         panel.addView(moveRow);
 
+        panel.addView(section("呆毛外形（围绕固定根点）"));
+        LinearLayout ahogeWidthRow = row();
+        ahogeWidthRow.addView(actionButton("收窄", () -> adjustAhogeShape(-.03f, 0f, 0f)), weighted());
+        ahogeWidthRow.addView(actionButton("加宽", () -> adjustAhogeShape(.03f, 0f, 0f)), weighted());
+        ahogeWidthRow.addView(actionButton("变矮", () -> adjustAhogeShape(0f, -.03f, 0f)), weighted());
+        ahogeWidthRow.addView(actionButton("增高", () -> adjustAhogeShape(0f, .03f, 0f)), weighted());
+        panel.addView(ahogeWidthRow);
+        LinearLayout ahogeRotationRow = row();
+        ahogeRotationRow.addView(actionButton("逆时针 2°", () -> adjustAhogeShape(0f, 0f, 2f)), weighted());
+        ahogeRotationRow.addView(actionButton("顺时针 2°", () -> adjustAhogeShape(0f, 0f, -2f)), weighted());
+        panel.addView(ahogeRotationRow);
+
         panel.addView(section("部件前后图层（按头发素材节）"));
         LinearLayout layerRow = row();
         layerRow.addView(actionButton("往后（更容易被遮挡）", () -> adjustLayer(-1)),
@@ -194,6 +209,16 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         panel.addView(text("整对保留现有零位；画面左/右可分别微调。"
                         + "双抖仍由 Sen 原生网格负责，不继承头饰显隐。",
                 9, Color.rgb(180, 159, 199)));
+        Button earMaskButton = panelButton(earOuterMaskBypassEnabled
+                ? "耳鳍后侧：显示完整" : "耳鳍后侧：原兔耳蒙版");
+        earMaskButton.setOnClickListener(v -> {
+            earOuterMaskBypassEnabled = !earOuterMaskBypassEnabled;
+            prefs.edit().putBoolean("ear_outer_mask_bypass_enabled", earOuterMaskBypassEnabled).apply();
+            companionView.setEarOuterMaskBypassEnabled(earOuterMaskBypassEnabled);
+            earMaskButton.setText(earOuterMaskBypassEnabled
+                    ? "耳鳍后侧：显示完整" : "耳鳍后侧：原兔耳蒙版");
+        });
+        panel.addView(earMaskButton);
         calibrationText = text("", 10, Color.rgb(225, 204, 240));
         panel.addView(calibrationText);
         updateCalibrationText();
@@ -418,6 +443,13 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         persistCalibration();
     }
 
+    private void adjustAhogeShape(float width, float height, float rotation) {
+        selectedGroup = CompositeOverlayGroup.AHOGE;
+        prefs.edit().putString("calibration_group", selectedGroup.id).apply();
+        calibration = calibration.withAhogeShapeDelta(width, height, rotation);
+        persistCalibration();
+    }
+
     private void adjustEarRotation(float rotation) {
         if (earAdjustmentTarget == EarAdjustmentTarget.PAIR) {
             calibration = calibration.withEarDelta(0f, 0f, rotation);
@@ -626,7 +658,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.26.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.27.json");
         });
     }
 
