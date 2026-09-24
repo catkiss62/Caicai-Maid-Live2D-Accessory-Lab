@@ -353,7 +353,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.29-native-tail-ahoge-width";
+            return "0.1.30-native-tail-breath";
         }
     }
 

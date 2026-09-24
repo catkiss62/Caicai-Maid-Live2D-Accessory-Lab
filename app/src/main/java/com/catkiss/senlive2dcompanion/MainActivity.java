@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.29 · 呆毛宽度与原生尾巴";
+    private static final String VERSION = "v0.1.30 · 恢复尾巴原生物理输入";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
@@ -645,7 +645,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.29.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.30.json");
         });
     }
 

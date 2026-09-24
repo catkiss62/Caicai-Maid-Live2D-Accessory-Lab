@@ -438,6 +438,11 @@ final class SenLive2DModel extends CubismUserModel {
             pendingEarPhysicsMix = 0.0f;
             pendingEarPhysicsActive = false;
         }
+        // PhysicsSetting71 in Sen's original physics3 reads only ParamBreath and drives
+        // the eight native tail-deformer parameters. The ear-only update advances the
+        // original breath clock, but never wrote its value into the donor model.
+        // Supply the same input as Sen's full-model update before native physics runs.
+        if (!staticMode) setParameter("ParamBreath", performance.getBreathValue());
         updateScheduler.onLateUpdate(model, frameDelta);
         applyOutfitParameters(SenOutfitPresets.MAID, null);
         updateModelWithOutfitShapeLock();
