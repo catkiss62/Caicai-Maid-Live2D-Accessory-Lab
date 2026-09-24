@@ -34,7 +34,7 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         void onMotionDiagnosticStep(String label, int index, int total);
         void onMotionDiagnosticComplete(String report);
         void onCompositeReport(String report);
-        void onMaidHairPointPicked(String anchorJson);
+        void onMaidHairPointPicked(String anchorJson, boolean frontHairExperiment);
     }
 
     public static final String DEFAULT_PROFILE_ASSET = "sen-default-profile-v1.json";
@@ -46,7 +46,8 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         @Override public void onMotionDiagnosticStep(String label, int index, int total) { }
         @Override public void onMotionDiagnosticComplete(String report) { }
         @Override public void onCompositeReport(String report) { }
-        @Override public void onMaidHairPointPicked(String anchorJson) { }
+        @Override public void onMaidHairPointPicked(String anchorJson,
+                                                    boolean frontHairExperiment) { }
     };
 
     private final SenRenderer renderer;
@@ -87,8 +88,9 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
             @Override public void onCompositeReport(String report) {
                 listener.onCompositeReport(report);
             }
-            @Override public void onMaidHairPointPicked(String anchorJson) {
-                listener.onMaidHairPointPicked(anchorJson);
+            @Override public void onMaidHairPointPicked(String anchorJson,
+                                                        boolean frontHairExperiment) {
+                listener.onMaidHairPointPicked(anchorJson, frontHairExperiment);
             }
         });
         setRenderer(renderer);
@@ -261,6 +263,14 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
 
     public void setMaidHairPoint(String anchorJson) {
         queueRenderer(() -> renderer.setMaidHairPointJson(anchorJson));
+    }
+
+    public void setFrontHairPoint(String anchorJson) {
+        queueRenderer(() -> renderer.setFrontHairPointJson(anchorJson));
+    }
+
+    public void setFrontHairExperimentEnabled(boolean enabled) {
+        queueRenderer(() -> renderer.setFrontHairExperimentEnabled(enabled));
     }
 
     public void pickMaidHairPoint(float x, float y) {

@@ -31,7 +31,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         void onMotionDiagnosticStep(String label, int index, int total);
         void onMotionDiagnosticComplete(String report);
         void onCompositeReport(String report);
-        void onMaidHairPointPicked(String anchorJson);
+        void onMaidHairPointPicked(String anchorJson, boolean frontHairExperiment);
     }
 
     private static final String TAG = "SenNativeCubism";
@@ -90,18 +90,26 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile boolean ahogeMotionResetRequested = true;
     private volatile boolean geometryConstraintEnabled = true;
     private String maidHairPointJson = "";
+    private String frontHairPointJson = "";
+    private volatile boolean frontHairExperimentEnabled;
+    private float lastRootAfterFlexGap;
+    private float lastRootAfterFinalLockGap;
+    private float maximumRootAfterFlexGap;
+    private float maximumRootAfterFinalLockGap;
+    private float lastEarLeftCenterY;
+    private float lastEarRightCenterY;
     private final long[] geometryFrames = new long[2];
     private final float[] maximumEarCorrection = new float[2];
     private float maximumEarSharedShift;
     private float maximumAhogeFlexAngle;
     // Every frame of the most recent left/right sweep, including frontal crossings.
     private static final int EAR_SWEEP_TRACE_CAPACITY = 900;
-    private final float[][] earSweepTrace = new float[EAR_SWEEP_TRACE_CAPACITY][8];
+    private final float[][] earSweepTrace = new float[EAR_SWEEP_TRACE_CAPACITY][10];
     private final long[] earSweepTraceTime = new long[EAR_SWEEP_TRACE_CAPACITY];
     private int earSweepTraceNext;
     private int earSweepTraceCount;
     private static final int AHOGE_SWEEP_TRACE_CAPACITY = 900;
-    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][12];
+    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][14];
     private final long[] ahogeSweepTraceTime = new long[AHOGE_SWEEP_TRACE_CAPACITY];
     private int ahogeSweepTraceNext;
     private int ahogeSweepTraceCount;
@@ -174,8 +182,35 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     void setMaidHairPointJson(String json) {
         maidHairPointJson = json == null ? "" : json;
-        if (model != null) model.restoreMaidHairPoint(maidHairPointJson);
+        if (model != null && (!frontHairExperimentEnabled || frontHairPointJson.isEmpty())) {
+            model.restoreMaidHairPoint(maidHairPointJson);
+        }
         ahogeMotionResetRequested = true;
+    }
+
+    void setFrontHairPointJson(String json) {
+        frontHairPointJson = json == null ? "" : json;
+        if (model != null && frontHairExperimentEnabled) {
+            model.restoreMaidHairPoint(frontHairPointJson.isEmpty()
+                    ? maidHairPointJson : frontHairPointJson);
+        }
+        ahogeMotionResetRequested = true;
+    }
+
+    void setFrontHairExperimentEnabled(boolean enabled) {
+        frontHairExperimentEnabled = enabled;
+        maximumRootAfterFlexGap = 0f;
+        maximumRootAfterFinalLockGap = 0f;
+        if (model != null) {
+            model.restoreMaidHairPoint(enabled && !frontHairPointJson.isEmpty()
+                    ? frontHairPointJson : maidHairPointJson);
+        }
+        ahogeSweepTraceNext = 0;
+        ahogeSweepTraceCount = 0;
+        ahogeMotionResetRequested = true;
+        if (enabled && frontHairPointJson.isEmpty()) {
+            listener.onStatus("表层发根试验：请先点击“点选表层发根”，再点画面中的可见头发");
+        }
     }
 
     void pickMaidHairPoint(float screenX, float screenY) {
@@ -188,14 +223,16 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             float y = 1f - 2f * screenY / surfaceHeight;
             // Equal physical pick radius on both axes, even on a tall screen.
             float radius = 18f * 2f / Math.min(surfaceWidth, surfaceHeight);
-            JSONObject point = model.pickMaidHairPoint(maidProjection, x, y, radius);
+            JSONObject point = model.pickMaidHairPoint(maidProjection, x, y, radius,
+                    frontHairExperimentEnabled);
             if (point == null) {
                 listener.onStatus("没有点中顶部头发，请放大人物后点呆毛接入的位置");
                 return;
             }
-            maidHairPointJson = point.toString();
+            if (frontHairExperimentEnabled) frontHairPointJson = point.toString();
+            else maidHairPointJson = point.toString();
             ahogeMotionResetRequested = true;
-            listener.onMaidHairPointPicked(maidHairPointJson);
+            listener.onMaidHairPointPicked(point.toString(), frontHairExperimentEnabled);
         } catch (JSONException error) {
             listener.onError(error);
         }
@@ -241,8 +278,14 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("ear_screen_turn_signed", lastEarScreenTurn)
                     .put("maximum_ear_shared_shift_clip", maximumEarSharedShift)
                     .put("ear_shared_shift_over_neutral_span", .07)
+                    .put("ear_screen_left_center_y_clip", lastEarLeftCenterY)
+                    .put("ear_screen_right_center_y_clip", lastEarRightCenterY)
                     .put("root_to_hair_target_before_clip", lastRootBeforeGap)
                     .put("root_to_hair_target_after_clip", lastRootCorrection)
+                    .put("root_to_hair_target_after_flex_clip", lastRootAfterFlexGap)
+                    .put("root_to_hair_target_after_final_lock_clip", lastRootAfterFinalLockGap)
+                    .put("maximum_root_gap_after_flex_clip", maximumRootAfterFlexGap)
+                    .put("maximum_root_gap_after_final_lock_clip", maximumRootAfterFinalLockGap)
                     .put("ahoge_flex_angle_degrees", (float) Math.toDegrees(ahogeLagAngle))
                     .put("maximum_ahoge_flex_angle_degrees", (float) Math.toDegrees(maximumAhogeFlexAngle))
                     .put("maximum_root_gap_baseline_clip", maximumRootCorrection[0])
@@ -263,7 +306,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("columns", new JSONArray(Arrays.asList("uptime_ms", "head_turn_signed",
                             "face_parallax_clip", "chosen_screen_turn", "shared_shift_clip",
                             "left_center_after_clip", "right_center_after_clip",
-                            "outer_span_after_clip", "sen_native_ear_drive")))
+                            "outer_span_after_clip", "sen_native_ear_drive",
+                            "left_center_y_clip", "right_center_y_clip")))
                     .put("capacity_frames", EAR_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", earSweepTraceCount)
                     .put("samples", sweepSamples));
@@ -281,7 +325,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             "root_y_clip", "visible_width_clip", "direction_dx_clip",
                             "direction_dy_clip", "width_before_flex_clip",
                             "flex_angle_degrees", "pose_shift_x_clip",
-                            "visible_center_x_clip")))
+                            "visible_center_x_clip", "root_after_flex_gap_clip",
+                            "root_after_final_lock_gap_clip")))
                     .put("capacity_frames", AHOGE_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", ahogeSweepTraceCount)
                     .put("samples", ahogeSamples));
@@ -304,7 +349,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("combined_group", false));
             root.put("ear_pair_constraint", new JSONObject()
                     .put("horizontal_local_response", .28)
-                    .put("vertical_local_response", .60)
+                    .put("vertical_local_response", .45)
                     .put("actual_outer_span_over_neutral", 1.01)
                     .put("maximum_head_turn_narrowing", .16)
                     .put("maximum_shared_shift_over_neutral_span", .07)
@@ -316,6 +361,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("direction_target", "unconstrained_Sen_local_axis")
                     .put("maid_hair_point", model == null || model.selectedMaidHairPointJson() == null
                             ? JSONObject.NULL : model.selectedMaidHairPointJson())
+                    .put("selected_render_order", model == null ? -1
+                            : model.selectedMaidHairRenderOrder())
+                    .put("default_hair_point_json", maidHairPointJson)
+                    .put("front_hair_point_json", frontHairPointJson)
+                    .put("front_hair_experiment_enabled",
+                            geometryConstraintEnabled && frontHairExperimentEnabled
+                                    && !frontHairPointJson.isEmpty())
                     .put("native_mesh_overwrite", false)
                     .put("secondary_motion", "maid_head_yaw_pose_follow_and_velocity_driven_flex")
                     .put("pose_follow_over_ahoge_width", 0)
@@ -353,7 +405,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.30-native-tail-breath";
+            return "0.1.31-front-hair-anchor-comparison";
         }
     }
 
@@ -690,6 +742,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             lastEarRightBeforeX = (right[0] + right[2]) * .5f;
             lastEarLeftAfterX = (afterLeft[0] + afterLeft[2]) * .5f;
             lastEarRightAfterX = (afterRight[0] + afterRight[2]) * .5f;
+            lastEarLeftCenterY = (afterLeft[1] + afterLeft[3]) * .5f;
+            lastEarRightCenterY = (afterRight[1] + afterRight[3]) * .5f;
             lastEarMeasuredSharedShift = (lastEarLeftAfterX - lastEarLeftBeforeX
                     + lastEarRightAfterX - lastEarRightBeforeX) * .5f;
             if (geometryConstraintEnabled
@@ -703,6 +757,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[5] = lastEarRightAfterX;
                 sample[6] = lastEarAfterSpan;
                 sample[7] = overlayModel.currentAccessoryEarPhysicsDrive();
+                sample[8] = lastEarLeftCenterY;
+                sample[9] = lastEarRightCenterY;
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
                 if (validTrace) {
@@ -795,11 +851,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         float desiredLeftX = rigidLeft[0]
                 + (triangleCenterX(leftNow) - rigidLeft[0]) * .28f;
         float desiredLeftY = rigidLeft[1]
-                + (triangleCenterY(leftNow) - rigidLeft[1]) * .60f;
+                + (triangleCenterY(leftNow) - rigidLeft[1]) * .45f;
         float desiredRightX = rigidRight[0]
                 + (triangleCenterX(rightNow) - rigidRight[0]) * .28f;
         float desiredRightY = rigidRight[1]
-                + (triangleCenterY(rightNow) - rigidRight[1]) * .60f;
+                + (triangleCenterY(rightNow) - rigidRight[1]) * .45f;
 
         // Perspective may bring the fins closer together, but may never stretch their roots
         // farther apart than the rigid head pose plus a tiny tolerance.
@@ -904,6 +960,26 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         float[] boundsBeforeFlex = overlayModel.currentAhogeClipBounds(accessoryProjection);
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
                 model.horizontalHeadTurnSigned());
+        float[] rootAfterFlex = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.currentAhogeRootPoint());
+        lastRootAfterFlexGap = rootAfterFlex == null ? 0f : (float) Math.hypot(
+                targetRootX - rootAfterFlex[0], targetRootY - rootAfterFlex[1]);
+        maximumRootAfterFlexGap = Math.max(maximumRootAfterFlexGap, lastRootAfterFlexGap);
+        if (geometryConstraintEnabled && frontHairExperimentEnabled
+                && !frontHairPointJson.isEmpty() && rootAfterFlex != null) {
+            // The native root is a barycentric point, not one fixed vertex. Nonlinear flex can
+            // move its three vertices differently. Translate the complete finished mesh so the
+            // root seen by the renderer lands exactly on the independently picked front hair.
+            overlayModel.applyClipTransform(accessoryProjection,
+                    new Similarity2D(1f, 0f, targetRootX - rootAfterFlex[0],
+                            targetRootY - rootAfterFlex[1]).toMatrix());
+        }
+        float[] finalRoot = pointToClip(overlayModel, accessoryProjection,
+                overlayModel.currentAhogeRootPoint());
+        lastRootAfterFinalLockGap = finalRoot == null ? 0f : (float) Math.hypot(
+                targetRootX - finalRoot[0], targetRootY - finalRoot[1]);
+        maximumRootAfterFinalLockGap = Math.max(maximumRootAfterFinalLockGap,
+                lastRootAfterFinalLockGap);
         if (compositeTestMotion == CompositeTestMotion.HEAD_X_SWEEP) {
             float[] bounds = overlayModel.currentAhogeClipBounds(accessoryProjection);
             float[] direction = pointToClip(overlayModel, accessoryProjection,
@@ -924,6 +1000,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[9] = (float) Math.toDegrees(ahogeLagAngle);
                 sample[10] = 0f;
                 sample[11] = (bounds[0] + bounds[2]) * .5f;
+                sample[12] = lastRootAfterFlexGap;
+                sample[13] = lastRootAfterFinalLockGap;
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
                 if (validTrace) {
@@ -1283,7 +1361,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     listener, request.startupExpressions, maidAppearance,
                     null, request.options, SenOutfitPresets.MAID,
                     evMotionPack);
-            next.restoreMaidHairPoint(maidHairPointJson);
+            next.restoreMaidHairPoint(frontHairExperimentEnabled
+                    && !frontHairPointJson.isEmpty() ? frontHairPointJson : maidHairPointJson);
             next.setTouchFollowEnabled(touchFollowEnabled);
             next.setEarTuning(SenRenderOptions.EAR_SPEED_PERCENT,
                     SenRenderOptions.EAR_AMPLITUDE_PERCENT);

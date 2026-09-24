@@ -1258,11 +1258,20 @@ final class SenLive2DModel extends CubismUserModel {
     /** Pick on the *drawn* top-hair triangles; store their IDs and weights, never screen pixels. */
     JSONObject pickMaidHairPoint(CubismMatrix44 projection, float clipX, float clipY,
                                 float maximumClipDistance) throws JSONException {
+        return pickMaidHairPoint(projection, clipX, clipY, maximumClipDistance, false);
+    }
+
+    JSONObject pickMaidHairPoint(CubismMatrix44 projection, float clipX, float clipY,
+                                float maximumClipDistance, boolean preferFrontmost)
+            throws JSONException {
         if (model == null || compositeRole != CompositeModelRole.MAID_PRIMARY) return null;
         copyMvpMatrix(projection, interactionAnchorMvp);
         float[] matrix = interactionAnchorMvp.getArray();
         AhogeAnchorPoint best = null;
         float bestDistance = maximumClipDistance * maximumClipDistance;
+        int bestRenderOrder = Integer.MIN_VALUE;
+        boolean bestContainsTap = false;
+        int[] renderOrders = model.getRenderOrders();
         for (int index : collectChildDrawables(MAID_TOP_HAIR_PART_IDS)) {
             if (model.getDrawableOpacity(index) < .001f
                     || !model.getDrawableDynamicFlagIsVisible(index)) continue;
@@ -1285,6 +1294,7 @@ final class SenLive2DModel extends CubismUserModel {
                 float w1 = ((by - cy) * (clipX - cx) + (cx - bx) * (clipY - cy)) / det;
                 float w2 = ((cy - ay) * (clipX - cx) + (ax - cx) * (clipY - cy)) / det;
                 float w3 = 1f - w1 - w2;
+                boolean containsTap = w1 >= -1e-5f && w2 >= -1e-5f && w3 >= -1e-5f;
                 // Clamp to the triangle so a near-edge tap can still land on visible hair.
                 w1 = Math.max(0f, w1); w2 = Math.max(0f, w2); w3 = Math.max(0f, w3);
                 float sum = w1 + w2 + w3;
@@ -1292,8 +1302,16 @@ final class SenLive2DModel extends CubismUserModel {
                 float px = w1 * ax + w2 * bx + w3 * cx;
                 float py = w1 * ay + w2 * by + w3 * cy;
                 float distance = (px - clipX) * (px - clipX) + (py - clipY) * (py - clipY);
-                if (distance <= bestDistance) {
+                int renderOrder = renderOrders[index];
+                boolean better = preferFrontmost
+                        ? containsTap && (!bestContainsTap || renderOrder > bestRenderOrder
+                        || (renderOrder == bestRenderOrder && distance < bestDistance))
+                        || (!bestContainsTap && distance < bestDistance)
+                        : distance <= bestDistance;
+                if (better && distance <= maximumClipDistance * maximumClipDistance) {
                     bestDistance = distance;
+                    bestRenderOrder = renderOrder;
+                    bestContainsTap = containsTap;
                     best = new AhogeAnchorPoint(index, model.getDrawableId(index).getString(),
                             a, b, c, w1, w2, w3);
                 }
@@ -1302,6 +1320,11 @@ final class SenLive2DModel extends CubismUserModel {
         if (best == null) return null;
         selectedMaidHairPoint = best;
         return best.toJson();
+    }
+
+    int selectedMaidHairRenderOrder() {
+        return model == null || selectedMaidHairPoint == null ? -1
+                : model.getRenderOrders()[selectedMaidHairPoint.drawableIndex];
     }
 
     private final CubismMatrix44 interactionAnchorMvp = CubismMatrix44.create();

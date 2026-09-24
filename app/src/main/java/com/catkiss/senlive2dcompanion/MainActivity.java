@@ -22,6 +22,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -41,8 +42,9 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.30 · 恢复尾巴原生物理输入";
+    private static final String VERSION = "v0.1.31 · 表层发根对照";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
+    private static final String FRONT_HAIR_POINT_KEY = "maid_front_hair_pick_v1";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
             CompositeOverlayGroup.AHOGE,
@@ -71,6 +73,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     private boolean geometryConstraintEnabled = true;
     private boolean stageAdjustmentEnabled;
     private boolean pickingMaidHairPoint;
+    private boolean frontHairExperimentEnabled;
     private Button hairPickButton;
     private boolean whiteSocks;
     private float stageScale = 1f;
@@ -106,6 +109,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         buildUi();
         companionView.setGeometryConstraintEnabled(geometryConstraintEnabled);
         companionView.setMaidHairPoint(prefs.getString(HAIR_POINT_KEY, ""));
+        companionView.setFrontHairPoint(prefs.getString(FRONT_HAIR_POINT_KEY, ""));
         loadModels();
     }
 
@@ -214,6 +218,10 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         Button geometryButton = panelButton(geometryConstraintEnabled
                 ? "实际网格校正：开启" : "v0.1.16 原版：开启");
         geometryButton.setOnClickListener(v -> {
+            if (frontHairExperimentEnabled) {
+                setStatus("请先把呆毛发根切回 v0.1.30 默认，再使用 v0.1.16 对照");
+                return;
+            }
             geometryConstraintEnabled = !geometryConstraintEnabled;
             prefs.edit().putBoolean("geometry_constraint_enabled", geometryConstraintEnabled).apply();
             companionView.setGeometryConstraintEnabled(geometryConstraintEnabled);
@@ -221,6 +229,24 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                     ? "实际网格校正：开启" : "v0.1.16 原版：开启");
         });
         panel.addView(geometryButton);
+        Button frontHairButton = panelButton("呆毛发根：v0.1.30 默认");
+        frontHairButton.setOnClickListener(v -> {
+            frontHairExperimentEnabled = !frontHairExperimentEnabled;
+            pickingMaidHairPoint = false;
+            hairPickButton.setText(frontHairExperimentEnabled
+                    ? "点选表层发根（点这里，再点画面）" : "重新点选默认版呆毛连接点");
+            if (frontHairExperimentEnabled && !geometryConstraintEnabled) {
+                geometryConstraintEnabled = true;
+                prefs.edit().putBoolean("geometry_constraint_enabled", true).apply();
+                companionView.setGeometryConstraintEnabled(true);
+                geometryButton.setText("实际网格校正：开启");
+            }
+            companionView.setFrontHairExperimentEnabled(frontHairExperimentEnabled);
+            frontHairButton.setText(frontHairExperimentEnabled
+                    ? "呆毛发根：表层试验（点此恢复默认）"
+                    : "呆毛发根：v0.1.30 默认");
+        });
+        panel.addView(frontHairButton);
         hairPickButton = panelButton("点选呆毛接入的头发位置");
         hairPickButton.setOnClickListener(v -> {
             pickingMaidHairPoint = !pickingMaidHairPoint;
@@ -232,14 +258,16 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                     companionView.setGeometryConstraintEnabled(true);
                     geometryButton.setText("实际网格校正：开启");
                 }
-                setStatus("请点菜菜头发上呆毛接入的位置，可先用整体调整放大");
+                setStatus(frontHairExperimentEnabled
+                        ? "请点击画面中可见的表层发根，试验选点优先最前层网格"
+                        : "请点菜菜头发上呆毛接入的位置，可先用整体调整放大");
             }
             hairPickButton.setText(pickingMaidHairPoint
                     ? "等待点击头发（点此取消）" : "重新点选呆毛连接点");
         });
         panel.addView(hairPickButton);
-        panel.addView(text("选点时呆毛立即跟随；点错可重新点选。请先选中立，确认连接处后再做左右大幅。"
-                        + "下方按钮可在同一动作中对比 v0.1.16。",
+        panel.addView(text("先在中立姿势点可见表层发根，再做左右大幅；表层试验只改呆毛选点及"
+                        + "弹性后的最终根点，点按钮可立即回到 v0.1.30 呆毛。原有 v0.1.16 对照仍可用。",
                 9, Color.rgb(180, 159, 199)));
         LinearLayout staticRow = row();
         Button staticButton = panelButton(staticMode ? "完全静止：开启" : "完全静止：关闭");
@@ -575,10 +603,11 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 prefs.edit()
                         .putString("main_model_path", relativePath(packageBase, main))
                         .putString("accessory_model_path", relativePath(packageBase, accessory))
-                        .remove(HAIR_POINT_KEY)
+                        .remove(HAIR_POINT_KEY).remove(FRONT_HAIR_POINT_KEY)
                         .apply();
                 runOnUiThread(() -> {
                     companionView.setMaidHairPoint("");
+                    companionView.setFrontHairPoint("");
                     toast("鲸鱼女仆模型包导入成功");
                     loadModels();
                 });
@@ -609,6 +638,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         showLoading("正在加载菜菜女仆与 Sen 三配件动力层…");
         companionView.setOverlayCalibration(calibration.toPreferenceJson());
         companionView.setMaidHairPoint(prefs.getString(HAIR_POINT_KEY, ""));
+        companionView.setFrontHairPoint(prefs.getString(FRONT_HAIR_POINT_KEY, ""));
         companionView.setCompositeTestMotion(selectedMotion.id);
         companionView.setStaticMode(staticMode);
         companionView.loadModels(main, accessory, !staticMode,
@@ -645,16 +675,26 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.30.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.31.json");
         });
     }
 
-    @Override public void onMaidHairPointPicked(String anchorJson) {
+    @Override public void onMaidHairPointPicked(String anchorJson,
+                                               boolean pickedFrontHair) {
+        String drawableId;
+        try { drawableId = new JSONObject(anchorJson).optString("drawableId", "头发网格"); }
+        catch (JSONException ignored) { drawableId = "头发网格"; }
+        final String pickedDrawableId = drawableId;
         runOnUiThread(() -> {
-            prefs.edit().putString(HAIR_POINT_KEY, anchorJson).apply();
+            prefs.edit().putString(pickedFrontHair
+                    ? FRONT_HAIR_POINT_KEY : HAIR_POINT_KEY, anchorJson).apply();
             pickingMaidHairPoint = false;
-            hairPickButton.setText("重新点选呆毛连接点");
-            setStatus("已选中顶部头发：呆毛根部现在跟随该点；请看位置是否吻合");
+            hairPickButton.setText(frontHairExperimentEnabled
+                    ? "重新点选表层发根" : "重新点选默认版呆毛连接点");
+            setStatus(pickedFrontHair
+                    ? "试验发根已记录在 " + pickedDrawableId
+                    + "；请做左右大幅比较"
+                    : "已选中顶部头发：呆毛根部现在跟随该点；请看位置是否吻合");
         });
     }
 
