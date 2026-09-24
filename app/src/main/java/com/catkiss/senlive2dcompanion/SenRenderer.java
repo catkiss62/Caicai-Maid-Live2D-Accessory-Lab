@@ -101,7 +101,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private int earSweepTraceNext;
     private int earSweepTraceCount;
     private static final int AHOGE_SWEEP_TRACE_CAPACITY = 900;
-    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][8];
+    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][10];
     private final long[] ahogeSweepTraceTime = new long[AHOGE_SWEEP_TRACE_CAPACITY];
     private int ahogeSweepTraceNext;
     private int ahogeSweepTraceCount;
@@ -279,12 +279,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("columns", new JSONArray(Arrays.asList("uptime_ms", "head_turn_signed",
                             "gross_head_scale", "gross_head_angle_degrees", "root_x_clip",
                             "root_y_clip", "visible_width_clip", "direction_dx_clip",
-                            "direction_dy_clip")))
+                            "direction_dy_clip", "width_before_flex_clip",
+                            "flex_angle_degrees")))
                     .put("capacity_frames", AHOGE_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", ahogeSweepTraceCount)
                     .put("samples", ahogeSamples));
             root.put("attachment_mode", TRIANGLE_CARRIER_ATTACHMENT_ENABLED
-                    ? (geometryConstraintEnabled ? "picked_hair_root_and_head_driven_flex"
+                    ? (geometryConstraintEnabled ? "picked_hair_root_and_velocity_driven_flex"
                     : "v0.1.16_independent_face_mesh_pins")
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
@@ -315,7 +316,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("maid_hair_point", model == null || model.selectedMaidHairPointJson() == null
                             ? JSONObject.NULL : model.selectedMaidHairPointJson())
                     .put("native_mesh_overwrite", false)
-                    .put("secondary_motion", "maid_head_yaw_and_velocity_driven_smooth_flex")
+                    .put("secondary_motion", "maid_head_velocity_driven_smooth_flex")
+                    .put("gross_head_scale_response", geometryConstraintEnabled ? 0 : .85)
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
             root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
@@ -349,7 +351,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.24-continuous-correct-ear-turn-and-ahoge-trace";
+            return "0.1.25-stable-ahoge-width";
         }
     }
 
@@ -867,8 +869,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     /** Carry the complete Sen mesh with the accepted head motion, then translate its root only. */
     private void applyMaidAhogeRootMotion(CubismMatrix44 accessoryProjection) {
+        // The face triangle becomes 1.056x on one side and .857x on the other. That is useful
+        // for the ears, but scales the whole pinned ahoge despite its root staying on the hair.
+        // Retain the head's gross rotation and the picked hair point, with unit scale for ahoge.
         applyMaidHeadPinMotionLegacy(CompositeOverlayGroup.AHOGE, true,
-                accessoryProjection, .85f, .70f, 1.35f);
+                accessoryProjection, 0f, 1f, 1f);
         float[] hairPoint = model.currentMaidHairPoint();
         float[] targetRoot = pointToClip(model, maidProjection, hairPoint);
         float[] rootBefore = pointToClip(overlayModel, accessoryProjection,
@@ -890,15 +895,17 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     targetRootX - rootAfter[0], targetRootY - rootAfter[1]);
             maximumRootCorrection[1] = Math.max(maximumRootCorrection[1], lastRootCorrection);
         }
-        // The donor's neutral head has no Hair Z input in composite mode. Drive local flex from
-        // the maid's actual turn; the Sen direction point is never forced to a maid direction.
+        // The donor's neutral head has no Hair Z input in composite mode. Keep velocity-driven
+        // flex, without a persistent yaw force that stretches the silhouette at either extreme.
+        float[] boundsBeforeFlex = compositeTestMotion == CompositeTestMotion.HEAD_X_SWEEP
+                ? overlayModel.currentAhogeClipBounds(accessoryProjection) : null;
         applyAhogeSecondaryMotion(accessoryProjection, targetRootX, targetRootY,
                 model.horizontalHeadTurnSigned());
         if (compositeTestMotion == CompositeTestMotion.HEAD_X_SWEEP) {
             float[] bounds = overlayModel.currentAhogeClipBounds(accessoryProjection);
             float[] direction = pointToClip(overlayModel, accessoryProjection,
                     overlayModel.currentAhogeDirectionPoint());
-            Similarity2D grossHead = currentGrossHeadMotion(.85f, .70f, 1.35f);
+            Similarity2D grossHead = currentGrossHeadMotion(0f, 1f, 1f);
             if (bounds != null && direction != null && grossHead != null) {
                 float[] sample = ahogeSweepTrace[ahogeSweepTraceNext];
                 sample[0] = model.horizontalHeadTurnSigned();
@@ -909,6 +916,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[5] = bounds[2] - bounds[0];
                 sample[6] = direction[0] - targetRootX;
                 sample[7] = direction[1] - targetRootY;
+                sample[8] = boundsBeforeFlex == null ? Float.NaN
+                        : boundsBeforeFlex[2] - boundsBeforeFlex[0];
+                sample[9] = (float) Math.toDegrees(ahogeLagAngle);
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
                 if (validTrace) {
@@ -989,11 +999,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         previousAhogeRootY = rootY;
         previousAhogeHeadAngle = headAngle;
 
-        float targetLagX = clamp(-rootVelocityX * .045f - headAngle * .035f,
-                -.065f, .065f);
+        float targetLagX = clamp(-rootVelocityX * .045f, -.065f, .065f);
         float targetLagY = clamp(-rootVelocityY * .040f, -.030f, .030f);
-        float targetLagAngle = clamp(-angularVelocity * .070f - headAngle * .16f,
-                -.22f, .22f);
+        float targetLagAngle = clamp(-angularVelocity * .070f, -.22f, .22f);
         float stiffness = 30f;
         float damping = (float) Math.exp(-9f * dt);
         ahogeLagVelocityX = (ahogeLagVelocityX

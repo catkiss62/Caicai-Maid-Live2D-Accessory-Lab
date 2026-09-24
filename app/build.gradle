@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 25
-        versionName '0.1.24-continuous-correct-ear-turn-and-ahoge-trace'
+        versionCode 26
+        versionName '0.1.25-stable-ahoge-width'
     }
 
     signingConfigs {
