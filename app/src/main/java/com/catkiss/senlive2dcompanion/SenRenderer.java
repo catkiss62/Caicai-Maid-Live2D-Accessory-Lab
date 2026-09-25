@@ -100,13 +100,17 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float maximumRootAfterFinalLockGap;
     private float lastEarLeftCenterY;
     private float lastEarRightCenterY;
+    private float lastEarLeftWidthOverNeutral;
+    private float lastEarLeftHeightOverNeutral;
+    private float lastEarRightWidthOverNeutral;
+    private float lastEarRightHeightOverNeutral;
     private final long[] geometryFrames = new long[2];
     private final float[] maximumEarCorrection = new float[2];
     private float maximumEarSharedShift;
     private float maximumAhogeFlexAngle;
     // Every frame of the most recent left/right sweep, including frontal crossings.
     private static final int EAR_SWEEP_TRACE_CAPACITY = 900;
-    private final float[][] earSweepTrace = new float[EAR_SWEEP_TRACE_CAPACITY][10];
+    private final float[][] earSweepTrace = new float[EAR_SWEEP_TRACE_CAPACITY][14];
     private final long[] earSweepTraceTime = new long[EAR_SWEEP_TRACE_CAPACITY];
     private int earSweepTraceNext;
     private int earSweepTraceCount;
@@ -282,6 +286,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("ear_shared_shift_over_neutral_span", .07)
                     .put("ear_screen_left_center_y_clip", lastEarLeftCenterY)
                     .put("ear_screen_right_center_y_clip", lastEarRightCenterY)
+                    .put("ear_screen_left_width_over_neutral", lastEarLeftWidthOverNeutral)
+                    .put("ear_screen_left_height_over_neutral", lastEarLeftHeightOverNeutral)
+                    .put("ear_screen_right_width_over_neutral", lastEarRightWidthOverNeutral)
+                    .put("ear_screen_right_height_over_neutral", lastEarRightHeightOverNeutral)
                     .put("ahoge_local_hair_rotation_degrees", lastAhogeHairRotationDegrees)
                     .put("ahoge_local_rotation_correction_degrees", lastAhogeRotationCorrectionDegrees)
                     .put("root_to_hair_target_before_clip", lastRootBeforeGap)
@@ -311,7 +319,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             "face_parallax_clip", "chosen_screen_turn", "shared_shift_clip",
                             "left_center_after_clip", "right_center_after_clip",
                             "outer_span_after_clip", "sen_native_ear_drive",
-                            "left_center_y_clip", "right_center_y_clip")))
+                            "left_center_y_clip", "right_center_y_clip",
+                            "left_width_over_neutral", "left_height_over_neutral",
+                            "right_width_over_neutral", "right_height_over_neutral")))
                     .put("capacity_frames", EAR_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", earSweepTraceCount)
                     .put("samples", sweepSamples));
@@ -356,6 +366,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("horizontal_local_response", .28)
                     .put("vertical_local_response", .45)
                     .put("side_turn_vertical_response", .55)
+                    .put("fin_drawable_scale_response", geometryConstraintEnabled ? 0 : .65)
+                    .put("pin_position_scale_response", .65)
                     .put("actual_outer_span_over_neutral", 1.01)
                     .put("maximum_head_turn_narrowing", .16)
                     .put("maximum_shared_shift_over_neutral_span", .07)
@@ -413,7 +425,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.32-local-hair-rotation";
+            return "0.1.33-ear-size-isolation";
         }
     }
 
@@ -752,6 +764,14 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             lastEarRightAfterX = (afterRight[0] + afterRight[2]) * .5f;
             lastEarLeftCenterY = (afterLeft[1] + afterLeft[3]) * .5f;
             lastEarRightCenterY = (afterRight[1] + afterRight[3]) * .5f;
+            lastEarLeftWidthOverNeutral = dimensionRatio(afterLeft[2] - afterLeft[0],
+                    neutralLeft[2] - neutralLeft[0]);
+            lastEarLeftHeightOverNeutral = dimensionRatio(afterLeft[3] - afterLeft[1],
+                    neutralLeft[3] - neutralLeft[1]);
+            lastEarRightWidthOverNeutral = dimensionRatio(afterRight[2] - afterRight[0],
+                    neutralRight[2] - neutralRight[0]);
+            lastEarRightHeightOverNeutral = dimensionRatio(afterRight[3] - afterRight[1],
+                    neutralRight[3] - neutralRight[1]);
             lastEarMeasuredSharedShift = (lastEarLeftAfterX - lastEarLeftBeforeX
                     + lastEarRightAfterX - lastEarRightBeforeX) * .5f;
             if (geometryConstraintEnabled
@@ -767,6 +787,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[7] = overlayModel.currentAccessoryEarPhysicsDrive();
                 sample[8] = lastEarLeftCenterY;
                 sample[9] = lastEarRightCenterY;
+                sample[10] = lastEarLeftWidthOverNeutral;
+                sample[11] = lastEarLeftHeightOverNeutral;
+                sample[12] = lastEarRightWidthOverNeutral;
+                sample[13] = lastEarRightHeightOverNeutral;
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
                 if (validTrace) {
@@ -896,7 +920,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             desiredRightY = centerY + desiredDy * .5f;
         }
 
-        Similarity2D pinnedMotion = grossHeadMotion.mappingPoint(
+        // Use the same measured pin position, but do not scale the fin with a face triangle.
+        // Perspective spacing remains the job of the separate pair-width constraint.
+        Similarity2D pinnedMotion = grossHeadMotion.withScaleResponse(0f, 1f, 1f).mappingPoint(
                 screenLeft ? leftNeutralX : rightNeutralX,
                 screenLeft ? leftNeutralY : rightNeutralY,
                 screenLeft ? desiredLeftX : desiredRightX,
@@ -1168,6 +1194,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     private static float clamp(float value, float minimum, float maximum) {
         return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    private static float dimensionRatio(float measured, float neutral) {
+        return neutral > 1e-6f && Float.isFinite(measured) ? measured / neutral : 0f;
     }
 
     private static float triangleCenterX(float[] triangle) {
