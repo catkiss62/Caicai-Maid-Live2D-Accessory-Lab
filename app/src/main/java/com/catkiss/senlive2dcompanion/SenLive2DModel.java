@@ -154,6 +154,12 @@ final class SenLive2DModel extends CubismUserModel {
     private static final String[] RABBIT_EAR_PHYSICS_OUTPUT_IDS = {
             "ParamL_angle", "ParamR_angle", "ParamR_angle2"
     };
+    // Keep the discovery probes above limited to the active ear rig. The native physics also
+    // drives intermediate and tip deformations, which must all survive the isolated evaluation.
+    private static final String[] RABBIT_EAR_TWITCH_OUTPUT_IDS = {
+            "ParamL_angle", "ParamR_angle", "ParamR_angle2",
+            "Param57", "Param62", "Param58", "Param63", "Param59"
+    };
     private static final float EAR_HIDDEN_EYE_DRIVE = -1.05f;
     private static final float EAR_HIDDEN_NINE_AXIS_DRIVE = -6.0f;
     private static final String[] ARM_PHYSICS_OUTPUT_IDS = {
@@ -2079,14 +2085,15 @@ final class SenLive2DModel extends CubismUserModel {
 
     private void resolveRabbitEarPhysicsParameters() {
         int count = 0;
-        int[] candidates = new int[RABBIT_EAR_PHYSICS_OUTPUT_IDS.length];
-        for (String id : RABBIT_EAR_PHYSICS_OUTPUT_IDS) {
+        int[] candidates = new int[RABBIT_EAR_TWITCH_OUTPUT_IDS.length];
+        for (String id : RABBIT_EAR_TWITCH_OUTPUT_IDS) {
             int index = findParameterIndex(id);
             if (index >= 0) candidates[count++] = index;
         }
         rabbitEarPhysicsIndices = Arrays.copyOf(candidates, count);
         isolatedEarValues = new float[count];
-        appendAppearanceDetail("九轴兔耳隔离输出 " + count + "/3");
+        appendAppearanceDetail("九轴兔耳隔离输出 " + count + "/"
+                + RABBIT_EAR_TWITCH_OUTPUT_IDS.length);
     }
 
     private void evaluateIsolatedEarPhysics(float deltaTimeSeconds) {

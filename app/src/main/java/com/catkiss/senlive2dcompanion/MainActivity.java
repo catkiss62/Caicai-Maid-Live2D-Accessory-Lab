@@ -42,7 +42,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.33 · 耳鳍大小校正";
+    private static final String VERSION = "v0.1.34 · 耳鳍弹性与呆毛跟随试验";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
     private static final String FRONT_HAIR_POINT_KEY = "maid_front_hair_pick_v1";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
@@ -243,7 +243,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
             }
             companionView.setFrontHairExperimentEnabled(frontHairExperimentEnabled);
             frontHairButton.setText(frontHairExperimentEnabled
-                    ? "呆毛发根：表层试验（点此恢复默认）"
+                    ? "呆毛发根：头部位移试验（点此恢复默认）"
                     : "呆毛发根：v0.1.30 默认");
         });
         panel.addView(frontHairButton);
@@ -266,8 +266,8 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                     ? "等待点击头发（点此取消）" : "重新点选呆毛连接点");
         });
         panel.addView(hairPickButton);
-        panel.addView(text("先在中立姿势点可见表层发根，再做左右大幅；表层试验只改呆毛选点及"
-                        + "弹性后的最终根点，点按钮可立即回到 v0.1.30 呆毛。原有 v0.1.16 对照仍可用。",
+        panel.addView(text("先在中立姿势点可见表层发根，再做左右大幅；试验档以头部刚性位移"
+                        + "带动选中发根，只平移呆毛，点按钮可立即回到 v0.1.30 默认呆毛。",
                 9, Color.rgb(180, 159, 199)));
         LinearLayout staticRow = row();
         Button staticButton = panelButton(staticMode ? "完全静止：开启" : "完全静止：关闭");
@@ -675,7 +675,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.33.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.34.json");
         });
     }
 

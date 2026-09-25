@@ -91,6 +91,9 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile boolean geometryConstraintEnabled = true;
     private String maidHairPointJson = "";
     private String frontHairPointJson = "";
+    private float[] frontHairNeutralModelPoint;
+    private float lastRigidHairDeltaX;
+    private float lastRigidHairDeltaY;
     private volatile boolean frontHairExperimentEnabled;
     private float lastRootAfterFlexGap;
     private float lastRootAfterFinalLockGap;
@@ -115,7 +118,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private int earSweepTraceNext;
     private int earSweepTraceCount;
     private static final int AHOGE_SWEEP_TRACE_CAPACITY = 900;
-    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][16];
+    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][18];
     private final long[] ahogeSweepTraceTime = new long[AHOGE_SWEEP_TRACE_CAPACITY];
     private int ahogeSweepTraceNext;
     private int ahogeSweepTraceCount;
@@ -196,9 +199,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     void setFrontHairPointJson(String json) {
         frontHairPointJson = json == null ? "" : json;
+        frontHairNeutralModelPoint = null;
         if (model != null && frontHairExperimentEnabled) {
             model.restoreMaidHairPoint(frontHairPointJson.isEmpty()
                     ? maidHairPointJson : frontHairPointJson);
+            if (!frontHairPointJson.isEmpty()) {
+                frontHairNeutralModelPoint = model.currentMaidHairPoint();
+            }
         }
         ahogeMotionResetRequested = true;
     }
@@ -235,7 +242,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 listener.onStatus("没有点中顶部头发，请放大人物后点呆毛接入的位置");
                 return;
             }
-            if (frontHairExperimentEnabled) frontHairPointJson = point.toString();
+            if (frontHairExperimentEnabled) {
+                frontHairPointJson = point.toString();
+                frontHairNeutralModelPoint = model.currentMaidHairPoint();
+            }
             else maidHairPointJson = point.toString();
             ahogeMotionResetRequested = true;
             listener.onMaidHairPointPicked(point.toString(), frontHairExperimentEnabled);
@@ -341,7 +351,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             "flex_angle_degrees", "pose_shift_x_clip",
                             "visible_center_x_clip", "root_after_flex_gap_clip",
                             "root_after_final_lock_gap_clip", "hair_rotation_degrees",
-                            "rotation_correction_degrees")))
+                            "rotation_correction_degrees", "rigid_minus_mesh_x_clip",
+                            "rigid_minus_mesh_y_clip")))
                     .put("capacity_frames", AHOGE_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", ahogeSweepTraceCount)
                     .put("samples", ahogeSamples));
@@ -389,8 +400,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("native_mesh_overwrite", false)
                     .put("secondary_motion", "maid_head_yaw_pose_follow_and_velocity_driven_flex")
                     .put("pose_follow_over_ahoge_width", 0)
-                    .put("local_hair_rotation_follow", geometryConstraintEnabled
-                            && frontHairExperimentEnabled && !frontHairPointJson.isEmpty())
+                    .put("local_hair_rotation_follow", false)
+                    .put("front_hair_trial", "rigid_head_position_from_neutral_picked_root")
+                    .put("front_hair_rigid_minus_mesh_x_clip", lastRigidHairDeltaX)
+                    .put("front_hair_rigid_minus_mesh_y_clip", lastRigidHairDeltaY)
                     .put("gross_head_scale_response", geometryConstraintEnabled ? 0 : .85)
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
@@ -425,7 +438,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.33-ear-size-isolation";
+            return "0.1.34-ear-softness-hair-translation";
         }
     }
 
@@ -986,6 +999,30 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return; // Before user picks, keep the proven v0.1.16 motion and neutral position.
         }
         float targetRootX = targetRoot[0], targetRootY = targetRoot[1];
+        lastRigidHairDeltaX = 0f;
+        lastRigidHairDeltaY = 0f;
+        if (frontHairExperimentEnabled && frontHairNeutralModelPoint != null) {
+            // Compare the under-traveling top-hair skinning point with a rigid, unit-scale
+            // head position. Only the root target moves; never stretch individual hair meshes.
+            float[] neutralRoot = pointToClip(model, maidProjection,
+                    frontHairNeutralModelPoint);
+            float[] neutralPin = triangleToClip(model, maidProjection,
+                    model.neutralHeadPinTriangle(CompositeOverlayGroup.AHOGE, true));
+            float[] currentPin = triangleToClip(model, maidProjection,
+                    model.currentHeadPinTriangle(CompositeOverlayGroup.AHOGE, true));
+            Similarity2D grossHead = currentGrossHeadMotion(0f, 1f, 1f);
+            if (neutralRoot != null && neutralPin != null && currentPin != null
+                    && grossHead != null) {
+                Similarity2D rigid = grossHead.mappingPoint(
+                        triangleCenterX(neutralPin), triangleCenterY(neutralPin),
+                        triangleCenterX(currentPin), triangleCenterY(currentPin));
+                float[] predicted = rigid.transformPoint(neutralRoot[0], neutralRoot[1]);
+                lastRigidHairDeltaX = predicted[0] - targetRootX;
+                lastRigidHairDeltaY = predicted[1] - targetRootY;
+                targetRootX = predicted[0];
+                targetRootY = predicted[1];
+            }
+        }
         lastRootBeforeGap = (float) Math.hypot(
                 targetRootX - rootBefore[0], targetRootY - rootBefore[1]);
         overlayModel.applyClipTransform(accessoryProjection,
@@ -1000,27 +1037,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         }
         lastAhogeHairRotationDegrees = 0f;
         lastAhogeRotationCorrectionDegrees = 0f;
-        if (frontHairExperimentEnabled && !frontHairPointJson.isEmpty()) {
-            float[] hairNow = triangleToClip(model, maidProjection,
-                    model.currentCarrierTriangle(CompositeOverlayGroup.AHOGE));
-            float[] hairNeutral = triangleToClip(model, maidProjection,
-                    model.neutralCarrierTriangle(CompositeOverlayGroup.AHOGE));
-            Similarity2D grossHead = currentGrossHeadMotion(0f, 1f, 1f);
-            if (hairNow != null && hairNeutral != null && grossHead != null) {
-                Similarity2D localHair = Similarity2D.betweenTriangle(
-                        hairNeutral, hairNow, .5f, 1.8f);
-                float correction = clamp(wrapRadians(localHair.angleRadians()
-                        - grossHead.angleRadians()), -.22f, .22f);
-                lastAhogeHairRotationDegrees = (float) Math.toDegrees(localHair.angleRadians());
-                lastAhogeRotationCorrectionDegrees = (float) Math.toDegrees(correction);
-                float cos = (float) Math.cos(correction);
-                float sin = (float) Math.sin(correction);
-                overlayModel.applyClipTransform(accessoryProjection,
-                        new Similarity2D(cos, sin,
-                                targetRootX - cos * targetRootX + sin * targetRootY,
-                                targetRootY - sin * targetRootX - cos * targetRootY).toMatrix());
-            }
-        }
         // Measure the contour before velocity flex. Side turns no longer apply an extra
         // sustained tip displacement: that weighted translation widened one side and narrowed
         // the other after the user's height/rotation calibration.
@@ -1071,6 +1087,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[13] = lastRootAfterFinalLockGap;
                 sample[14] = lastAhogeHairRotationDegrees;
                 sample[15] = lastAhogeRotationCorrectionDegrees;
+                sample[16] = lastRigidHairDeltaX;
+                sample[17] = lastRigidHairDeltaY;
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
                 if (validTrace) {
@@ -1434,6 +1452,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     listener, request.startupExpressions, maidAppearance,
                     null, request.options, SenOutfitPresets.MAID,
                     evMotionPack);
+            // Stored picks carry triangle IDs and weights. Resolve their neutral location
+            // immediately after load so existing installations need no additional tap.
+            frontHairNeutralModelPoint = null;
+            if (!frontHairPointJson.isEmpty()) {
+                next.restoreMaidHairPoint(frontHairPointJson);
+                frontHairNeutralModelPoint = next.currentMaidHairPoint();
+            }
             next.restoreMaidHairPoint(frontHairExperimentEnabled
                     && !frontHairPointJson.isEmpty() ? frontHairPointJson : maidHairPointJson);
             next.setTouchFollowEnabled(touchFollowEnabled);
