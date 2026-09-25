@@ -94,6 +94,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private volatile boolean frontHairExperimentEnabled;
     private float lastRootAfterFlexGap;
     private float lastRootAfterFinalLockGap;
+    private float lastAhogeHairRotationDegrees;
+    private float lastAhogeRotationCorrectionDegrees;
     private float maximumRootAfterFlexGap;
     private float maximumRootAfterFinalLockGap;
     private float lastEarLeftCenterY;
@@ -109,7 +111,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private int earSweepTraceNext;
     private int earSweepTraceCount;
     private static final int AHOGE_SWEEP_TRACE_CAPACITY = 900;
-    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][14];
+    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][16];
     private final long[] ahogeSweepTraceTime = new long[AHOGE_SWEEP_TRACE_CAPACITY];
     private int ahogeSweepTraceNext;
     private int ahogeSweepTraceCount;
@@ -280,6 +282,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("ear_shared_shift_over_neutral_span", .07)
                     .put("ear_screen_left_center_y_clip", lastEarLeftCenterY)
                     .put("ear_screen_right_center_y_clip", lastEarRightCenterY)
+                    .put("ahoge_local_hair_rotation_degrees", lastAhogeHairRotationDegrees)
+                    .put("ahoge_local_rotation_correction_degrees", lastAhogeRotationCorrectionDegrees)
                     .put("root_to_hair_target_before_clip", lastRootBeforeGap)
                     .put("root_to_hair_target_after_clip", lastRootCorrection)
                     .put("root_to_hair_target_after_flex_clip", lastRootAfterFlexGap)
@@ -326,7 +330,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             "direction_dy_clip", "width_before_flex_clip",
                             "flex_angle_degrees", "pose_shift_x_clip",
                             "visible_center_x_clip", "root_after_flex_gap_clip",
-                            "root_after_final_lock_gap_clip")))
+                            "root_after_final_lock_gap_clip", "hair_rotation_degrees",
+                            "rotation_correction_degrees")))
                     .put("capacity_frames", AHOGE_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", ahogeSweepTraceCount)
                     .put("samples", ahogeSamples));
@@ -350,6 +355,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("ear_pair_constraint", new JSONObject()
                     .put("horizontal_local_response", .28)
                     .put("vertical_local_response", .45)
+                    .put("side_turn_vertical_response", .55)
                     .put("actual_outer_span_over_neutral", 1.01)
                     .put("maximum_head_turn_narrowing", .16)
                     .put("maximum_shared_shift_over_neutral_span", .07)
@@ -371,6 +377,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("native_mesh_overwrite", false)
                     .put("secondary_motion", "maid_head_yaw_pose_follow_and_velocity_driven_flex")
                     .put("pose_follow_over_ahoge_width", 0)
+                    .put("local_hair_rotation_follow", geometryConstraintEnabled
+                            && frontHairExperimentEnabled && !frontHairPointJson.isEmpty())
                     .put("gross_head_scale_response", geometryConstraintEnabled ? 0 : .85)
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
@@ -405,7 +413,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.31-front-hair-anchor-comparison";
+            return "0.1.32-local-hair-rotation";
         }
     }
 
@@ -850,12 +858,22 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         // root should. Keep a small amount of horizontal parallax and more vertical correction.
         float desiredLeftX = rigidLeft[0]
                 + (triangleCenterX(leftNow) - rigidLeft[0]) * .28f;
-        float desiredLeftY = rigidLeft[1]
-                + (triangleCenterY(leftNow) - rigidLeft[1]) * .45f;
+        float[] headNow = triangleToClip(model, maidProjection,
+                model.currentCarrierTriangle(CompositeOverlayGroup.EAR_FINS));
+        float[] headNeutral = triangleToClip(model, maidProjection,
+                model.neutralCarrierTriangle(CompositeOverlayGroup.EAR_FINS));
+        float headVerticalShift = headNow == null || headNeutral == null ? 0f
+                : triangleCenterY(headNow) - triangleCenterY(headNeutral);
+        // Follow whole-head vertical motion fully. Attenuate only the opposite up/down
+        // displacement produced by yaw at the two side pins, including the rigid component.
+        float desiredLeftY = leftNeutralY + headVerticalShift + .55f
+                * (rigidLeft[1] + .45f * (triangleCenterY(leftNow) - rigidLeft[1])
+                - leftNeutralY - headVerticalShift);
         float desiredRightX = rigidRight[0]
                 + (triangleCenterX(rightNow) - rigidRight[0]) * .28f;
-        float desiredRightY = rigidRight[1]
-                + (triangleCenterY(rightNow) - rigidRight[1]) * .45f;
+        float desiredRightY = rightNeutralY + headVerticalShift + .55f
+                * (rigidRight[1] + .45f * (triangleCenterY(rightNow) - rigidRight[1])
+                - rightNeutralY - headVerticalShift);
 
         // Perspective may bring the fins closer together, but may never stretch their roots
         // farther apart than the rigid head pose plus a tiny tolerance.
@@ -954,6 +972,29 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     targetRootX - rootAfter[0], targetRootY - rootAfter[1]);
             maximumRootCorrection[1] = Math.max(maximumRootCorrection[1], lastRootCorrection);
         }
+        lastAhogeHairRotationDegrees = 0f;
+        lastAhogeRotationCorrectionDegrees = 0f;
+        if (frontHairExperimentEnabled && !frontHairPointJson.isEmpty()) {
+            float[] hairNow = triangleToClip(model, maidProjection,
+                    model.currentCarrierTriangle(CompositeOverlayGroup.AHOGE));
+            float[] hairNeutral = triangleToClip(model, maidProjection,
+                    model.neutralCarrierTriangle(CompositeOverlayGroup.AHOGE));
+            Similarity2D grossHead = currentGrossHeadMotion(0f, 1f, 1f);
+            if (hairNow != null && hairNeutral != null && grossHead != null) {
+                Similarity2D localHair = Similarity2D.betweenTriangle(
+                        hairNeutral, hairNow, .5f, 1.8f);
+                float correction = clamp(wrapRadians(localHair.angleRadians()
+                        - grossHead.angleRadians()), -.22f, .22f);
+                lastAhogeHairRotationDegrees = (float) Math.toDegrees(localHair.angleRadians());
+                lastAhogeRotationCorrectionDegrees = (float) Math.toDegrees(correction);
+                float cos = (float) Math.cos(correction);
+                float sin = (float) Math.sin(correction);
+                overlayModel.applyClipTransform(accessoryProjection,
+                        new Similarity2D(cos, sin,
+                                targetRootX - cos * targetRootX + sin * targetRootY,
+                                targetRootY - sin * targetRootX - cos * targetRootY).toMatrix());
+            }
+        }
         // Measure the contour before velocity flex. Side turns no longer apply an extra
         // sustained tip displacement: that weighted translation widened one side and narrowed
         // the other after the user's height/rotation calibration.
@@ -1002,6 +1043,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[11] = (bounds[0] + bounds[2]) * .5f;
                 sample[12] = lastRootAfterFlexGap;
                 sample[13] = lastRootAfterFinalLockGap;
+                sample[14] = lastAhogeHairRotationDegrees;
+                sample[15] = lastAhogeRotationCorrectionDegrees;
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
                 if (validTrace) {
