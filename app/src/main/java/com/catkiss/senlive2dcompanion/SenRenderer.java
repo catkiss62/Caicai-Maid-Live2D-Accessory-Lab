@@ -94,6 +94,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float[] frontHairNeutralModelPoint;
     private float lastRigidHairDeltaX;
     private float lastRigidHairDeltaY;
+    private float lastRightHairFollowX;
     private volatile boolean frontHairExperimentEnabled;
     private float lastRootAfterFlexGap;
     private float lastRootAfterFinalLockGap;
@@ -118,7 +119,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private int earSweepTraceNext;
     private int earSweepTraceCount;
     private static final int AHOGE_SWEEP_TRACE_CAPACITY = 900;
-    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][18];
+    private final float[][] ahogeSweepTrace = new float[AHOGE_SWEEP_TRACE_CAPACITY][19];
     private final long[] ahogeSweepTraceTime = new long[AHOGE_SWEEP_TRACE_CAPACITY];
     private int ahogeSweepTraceNext;
     private int ahogeSweepTraceCount;
@@ -352,7 +353,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                             "visible_center_x_clip", "root_after_flex_gap_clip",
                             "root_after_final_lock_gap_clip", "hair_rotation_degrees",
                             "rotation_correction_degrees", "rigid_minus_mesh_x_clip",
-                            "rigid_minus_mesh_y_clip")))
+                            "rigid_minus_mesh_y_clip", "right_follow_x_clip")))
                     .put("capacity_frames", AHOGE_SWEEP_TRACE_CAPACITY)
                     .put("captured_frames", ahogeSweepTraceCount)
                     .put("samples", ahogeSamples));
@@ -404,6 +405,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("front_hair_trial", "rigid_head_position_from_neutral_picked_root")
                     .put("front_hair_rigid_minus_mesh_x_clip", lastRigidHairDeltaX)
                     .put("front_hair_rigid_minus_mesh_y_clip", lastRigidHairDeltaY)
+                    .put("front_hair_right_follow_x_clip", lastRightHairFollowX)
                     .put("gross_head_scale_response", geometryConstraintEnabled ? 0 : .85)
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
@@ -438,7 +440,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.34-ear-softness-hair-translation";
+            return "0.1.35-right-hair-follow";
         }
     }
 
@@ -1001,6 +1003,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         float targetRootX = targetRoot[0], targetRootY = targetRoot[1];
         lastRigidHairDeltaX = 0f;
         lastRigidHairDeltaY = 0f;
+        lastRightHairFollowX = 0f;
         if (frontHairExperimentEnabled && frontHairNeutralModelPoint != null) {
             // Compare the under-traveling top-hair skinning point with a rigid, unit-scale
             // head position. Only the root target moves; never stretch individual hair meshes.
@@ -1021,6 +1024,15 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 lastRigidHairDeltaY = predicted[1] - targetRootY;
                 targetRootX = predicted[0];
                 targetRootY = predicted[1];
+                // v0.1.34 device comparison: the screen-left turn reaches the crown, while
+                // the screen-right turn still stops a little short. Only reinforce the right
+                // displacement already measured against the skinning point. This vanishes at
+                // neutral and leaves the accepted opposite turn and all mesh widths untouched.
+                if (model.horizontalHeadTurnSigned() > 0f) {
+                    lastRightHairFollowX = Math.min(.025f,
+                            Math.max(0f, lastRigidHairDeltaX) * .5f);
+                    targetRootX += lastRightHairFollowX;
+                }
             }
         }
         lastRootBeforeGap = (float) Math.hypot(
@@ -1089,6 +1101,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 sample[15] = lastAhogeRotationCorrectionDegrees;
                 sample[16] = lastRigidHairDeltaX;
                 sample[17] = lastRigidHairDeltaY;
+                sample[18] = lastRightHairFollowX;
                 boolean validTrace = true;
                 for (float value : sample) validTrace &= Float.isFinite(value);
                 if (validTrace) {

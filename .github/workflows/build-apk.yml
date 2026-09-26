@@ -79,7 +79,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: steps.android_build.outcome == 'success'
         with:
-          name: Caicai-Maid-Live2D-Accessory-Lab-v0.1.34
+          name: Caicai-Maid-Live2D-Accessory-Lab-v0.1.35
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -91,7 +91,7 @@ jobs:
         run: |
           gh issue create \
             --title "Composite APK build success · run ${{ github.run_id }}" \
-            --body "Caicai Maid accessory lab built successfully from commit $(git rev-parse HEAD). Artifact: Caicai-Maid-Live2D-Accessory-Lab-v0.1.34"
+            --body "Caicai Maid accessory lab built successfully from commit $(git rev-parse HEAD). Artifact: Caicai-Maid-Live2D-Accessory-Lab-v0.1.35"
 
       - name: Mark failed build
         if: steps.android_build.outcome == 'failure'
