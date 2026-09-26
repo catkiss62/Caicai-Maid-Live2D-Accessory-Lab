@@ -4,7 +4,7 @@
 
 - 用户真机确认 v0.1.37 呆毛右转 `1.5×`、耳鳍以及自主眨眼联动可以收口。根据 v0.1.35 诊断里已选中的可见发根，固定 `ArtMesh386` 三角 `[129,130,120]` 与重心 `[0.010805397,0.35519314,0.6340015]`；现有 `OverlayCalibration.defaults()` 与该报告的呆毛外形、耳鳍左右独立位置/层级和尾巴数值相符，作为每次加载的定版基线。移除配件的 X/Y/大小、呆毛外形、耳鳍旋转/层级、选点以及 v0.1.30/v0.1.16 对照按键；**整体舞台缩放/拖动/还原仍在**。运动观察、表情动作与导出诊断保留。
 - 私有素材 ZIP `菜菜女仆三配件-定版素材-v0.1.38.zip` 从用户女仆模型包取主模型及已改色的 Sen slot 06/16/19，从原 Sen 包取编译模型与原生物理。包含两个 `.moc3`、两个 `model3.json`、`accessory-lab.json`、独立 `binding-profile.json` 和女仆原装表情/动作。导入结构与现有 App 相同，48 条目，62,936,108 bytes，ZIP CRC 通过，SHA-256 `7ee6283824f89eec638b79fc23ae7b15639254d9ddca66ff8dee6c16adbc27a6`。该包是应用可重复导入的**素材基线**；跨模型绑定、右转补偿及耳鳍眨眼联动是渲染器逻辑，不宣称两个模型已在 Cubism Editor 烘焙成单一 `.moc3`。后续摸头与自主待机先作为应用驱动扩展，若改变素材或模型结构再出新版素材包。
-- v0.1.38 源码构建和私有 ZIP 在同一批交付；构建状态和真机体验在产出后补记。
+- v0.1.38 源码本地提交 `7222de6` 与远端等价提交 `25b5ecab17aa71dd50e7bf381f52e1d23389100f` 文件树同为 `47eed8183b372fc0a784f3fd132ffe8bdef42e70`。第一次 Actions [36219232068](https://github.com/catkiss62/Caicai-Maid-Live2D-Accessory-Lab/actions/runs/36219232068) 编译成功但沿用了旧 artifact 名称；工作流本地提交 `7930ad6`、远端 `16ec1779addfe5b0815fb9e83511fa6c8e2b2600` 改为从 `versionName` 自动命名。第二次 Actions [36219359871](https://github.com/catkiss62/Caicai-Maid-Live2D-Accessory-Lab/actions/runs/36219359871) 成功上传 v0.1.38 artifact；其 ZIP 和 APK 内 471 条目 CRC 通过，APK 3,876,807 bytes，SHA-256 `92a6fbf176148aa6ed58c0568bdf0f2f8bc20af88a29ac0b2074840b8f07c2f0`。素材 ZIP 的 manifest、两个模型描述文件登记的 moc/物理/显示信息及所需贴图路径均已核对；新安装的真实画面和导入耗时仍需真机确认。
 
 ## v0.1.37（呆毛 1.5× 定版与自主眨眼耳鳍单抖；待真机确认）
 
