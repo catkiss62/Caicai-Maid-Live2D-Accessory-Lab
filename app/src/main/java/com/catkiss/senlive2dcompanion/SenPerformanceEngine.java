@@ -99,7 +99,9 @@ final class SenPerformanceEngine {
     private float nextBlinkAt = 2.2f;
     private float nextIdleEarTwitchAt = 24.0f;
     private float blinkTime = -1.0f;
+    private int naturalBlinkStarts;
     private float earTwitchTime = -1.0f;
+    private float blinkEarTwitchTime = -1.0f;
     private float earSpeed = DEFAULT_EAR_SPEED;
     private float earAmplitude = DEFAULT_EAR_AMPLITUDE;
     private boolean autoIdle;
@@ -157,6 +159,16 @@ final class SenPerformanceEngine {
 
     void triggerEarTwitch() {
         earTwitchTime = 0.0f;
+    }
+
+    void triggerSingleEarTwitch() {
+        blinkEarTwitchTime = 0.0f;
+    }
+
+    int consumeNaturalBlinkStarts() {
+        int count = naturalBlinkStarts;
+        naturalBlinkStarts = 0;
+        return count;
     }
 
     void setEarTuning(float speedPercent, float amplitudePercent) {
@@ -256,29 +268,45 @@ final class SenPerformanceEngine {
 
     /**
      * Minimal personality loop for a donor model that renders only the ear fins. It deliberately
-     * advances no face, body, touch or action channels; only the confirmed low-frequency two-pulse
-     * ear reaction survives in the accessory layer.
+     * advances no face, body, touch or action channels. Maid blink events feed its one-pulse
+     * ear reaction; the explicit two-pulse test remains independently available.
      */
     void updateAccessoryEarOnly(float deltaSeconds) {
         float dt = Math.max(0.0f, Math.min(0.05f, deltaSeconds));
         elapsed += dt;
-        if (earTwitchTime < 0.0f && elapsed >= nextIdleEarTwitchAt) {
-            triggerEarTwitch();
-            nextIdleEarTwitchAt = elapsed + 28.0f + random.nextFloat() * 40.0f;
-        }
+        // The accessory's unattended ear reaction is now tied to actual maid blink starts.
+        // Explicit triggerEarTwitch still plays the established two-pulse test.
         advanceEarTwitch(dt);
     }
 
     private void advanceEarTwitch(float dt) {
-        if (earTwitchTime < 0.0f) return;
-        earTwitchTime += dt;
-        if (earTwitchTime >= earInputSeconds() + earSettleSeconds()) {
-            earTwitchTime = -1.0f;
+        if (earTwitchTime >= 0.0f) {
+            earTwitchTime += dt;
+            if (earTwitchTime >= earInputSeconds() + earSettleSeconds()) {
+                earTwitchTime = -1.0f;
+            }
+        }
+        if (blinkEarTwitchTime >= 0.0f) {
+            blinkEarTwitchTime += dt;
+            if (blinkEarTwitchTime >= singleEarInputSeconds() + earSettleSeconds()) {
+                blinkEarTwitchTime = -1.0f;
+            }
         }
     }
 
-    /** Two broader copies of the slow-blink driver, evaluated only by the isolated ear rig. */
+    /** Manual double pulse and a separate single pulse from a maid autonomous blink. */
     float getEarPhysicsDrive() {
+        float doubleDrive = getDoubleEarPhysicsDrive();
+        float singleDrive = 0.0f;
+        float pulseSeconds = singleEarInputSeconds();
+        if (blinkEarTwitchTime >= 0.0f && blinkEarTwitchTime < pulseSeconds) {
+            float phase = blinkEarTwitchTime / pulseSeconds;
+            singleDrive = earAmplitude * (float) Math.pow(Math.sin(Math.PI * phase), 1.15);
+        }
+        return Math.max(doubleDrive, singleDrive);
+    }
+
+    private float getDoubleEarPhysicsDrive() {
         if (earTwitchTime < 0.0f) return 0.0f;
         float pulseSeconds = EAR_PULSE_SECONDS / earSpeed;
         float gapSeconds = EAR_PULSE_GAP_SECONDS / earSpeed;
@@ -292,15 +320,24 @@ final class SenPerformanceEngine {
     }
 
     boolean isEarPhysicsActive() {
-        return earTwitchTime >= 0.0f;
+        return earTwitchTime >= 0.0f || blinkEarTwitchTime >= 0.0f;
     }
 
     float getEarPhysicsMix() {
-        if (earTwitchTime < 0.0f) return 0.0f;
-        float inputSeconds = earInputSeconds();
-        if (earTwitchTime <= inputSeconds) return 1.0f;
-        float release = (earTwitchTime - inputSeconds) / earSettleSeconds();
+        float doubleMix = earMix(earTwitchTime, earInputSeconds());
+        float singleMix = earMix(blinkEarTwitchTime, singleEarInputSeconds());
+        return Math.max(doubleMix, singleMix);
+    }
+
+    private float earMix(float time, float inputSeconds) {
+        if (time < 0.0f) return 0.0f;
+        if (time <= inputSeconds) return 1.0f;
+        float release = (time - inputSeconds) / earSettleSeconds();
         return 1.0f - smoothStep(release);
+    }
+
+    private float singleEarInputSeconds() {
+        return EAR_PULSE_SECONDS / earSpeed;
     }
 
     private float earInputSeconds() {
@@ -455,6 +492,7 @@ final class SenPerformanceEngine {
                 return;
             }
             blinkTime = 0.0f;
+            naturalBlinkStarts++;
         }
         if (blinkTime < 0.0f) return;
         blinkTime += dt;

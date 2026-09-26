@@ -95,7 +95,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float lastRigidHairDeltaX;
     private float lastRigidHairDeltaY;
     private float lastRightHairFollowX;
-    private float rightHairFollowFactor = 1f;
+    private long blinkEarSyncCount;
+    private static final float RIGHT_HAIR_FOLLOW_FACTOR = 1.5f;
     private volatile boolean frontHairExperimentEnabled;
     private float lastRootAfterFlexGap;
     private float lastRootAfterFinalLockGap;
@@ -226,11 +227,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         if (enabled && frontHairPointJson.isEmpty()) {
             listener.onStatus("表层发根试验：请先点击“点选表层发根”，再点画面中的可见头发");
         }
-    }
-
-    void setRightHairFollowFactor(float factor) {
-        rightHairFollowFactor = Math.max(0f, Math.min(2.5f, factor));
-        ahogeMotionResetRequested = true;
     }
 
     void pickMaidHairPoint(float screenX, float screenY) {
@@ -412,11 +408,15 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("front_hair_rigid_minus_mesh_x_clip", lastRigidHairDeltaX)
                     .put("front_hair_rigid_minus_mesh_y_clip", lastRigidHairDeltaY)
                     .put("front_hair_right_follow_x_clip", lastRightHairFollowX)
-                    .put("front_hair_right_follow_factor", rightHairFollowFactor)
+                    .put("front_hair_right_follow_factor", RIGHT_HAIR_FOLLOW_FACTOR)
                     .put("gross_head_scale_response", geometryConstraintEnabled ? 0 : .85)
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
             root.put("ear_visibility_source", "sen_accessory_only_not_headwear_opacity");
+            root.put("blink_ear_sync", new JSONObject()
+                    .put("autonomous_blink_starts_sent_to_ear_rig", blinkEarSyncCount)
+                    .put("pulses_per_blink", 1)
+                    .put("manual_test_pulses", 2));
             root.put("ear_neutral_pose_policy", "inherit_v0.1.12_pair_projection_identity_offsets");
             root.put("ear_layer_policy", "independent_material_skinning_section_slot_per_side");
             root.put("ahoge_layer_policy", "draw_immediately_in_front_of_headwear");
@@ -447,7 +447,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.36-right-hair-live-tuning";
+            return "0.1.37-blink-ear-sync-ahoge-final";
         }
     }
 
@@ -611,6 +611,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             model.update(delta);
             boolean showSen = overlayModel != null;
             if (showSen) {
+                int blinkStarts = model.consumeNaturalBlinkStarts();
+                if (blinkStarts > 0) {
+                    overlayModel.triggerSingleEarTwitch();
+                    blinkEarSyncCount += blinkStarts;
+                }
                 overlayModel.setAhogeShape(overlayCalibration.getAhogeShape());
                 overlayModel.update(delta);
             }
@@ -1037,7 +1042,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 // neutral and leaves the accepted opposite turn and all mesh widths untouched.
                 if (model.horizontalHeadTurnSigned() > 0f) {
                     lastRightHairFollowX = Math.max(0f, lastRigidHairDeltaX)
-                            * rightHairFollowFactor;
+                            * RIGHT_HAIR_FOLLOW_FACTOR;
                     targetRootX += lastRightHairFollowX;
                 }
             }
@@ -1451,6 +1456,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private void loadRequestedModel(ModelRequest request) {
         try {
             releaseCurrentModel();
+            blinkEarSyncCount = 0L;
             lastFrameNanos = 0L;
             listener.onStatus("原生渲染：准备加载菜菜女仆主模型…");
             SenLive2DModel next = new SenLive2DModel(CompositeModelRole.MAID_PRIMARY);

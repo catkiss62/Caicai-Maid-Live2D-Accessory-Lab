@@ -184,6 +184,7 @@ final class SenLive2DModel extends CubismUserModel {
     private SenNaturalMotionEngine senNaturalMotion;
     private SenMotionMode motionMode = SenMotionMode.ORIGINAL;
     private boolean autoIdleEnabled;
+    private int naturalBlinkStarts;
     private float evBodyFollowStrength = SenRenderOptions.DEFAULT_EV_BODY_FOLLOW_STRENGTH;
     private SenMotionDiagnostic motionDiagnostic;
     private MotionDiagnosticListener motionDiagnosticListener;
@@ -365,6 +366,7 @@ final class SenLive2DModel extends CubismUserModel {
             updateCompositeOverlay(deltaSeconds);
             return;
         }
+        naturalBlinkStarts = 0;
         float frameDelta = staticMode ? 0.0f : deltaSeconds;
         if (motionDiagnostic != null) motionDiagnostic.beforeFrame(deltaSeconds);
         // Always restore the captured appearance base. Dynamic features must never accumulate
@@ -393,6 +395,13 @@ final class SenLive2DModel extends CubismUserModel {
             @Override public void add(String id, float value) { addParameter(id, value); }
             @Override public void set(String id, float value) { setParameter(id, value); }
         });
+        // Only autonomous blink starts are counted. Diagnostic forceBlink and expressions do
+        // not produce an event, and each model update exports at most the starts of this frame.
+        naturalBlinkStarts += evFaithfulMotion == null ? 0
+                : evFaithfulMotion.consumeNaturalBlinkStarts();
+        naturalBlinkStarts += senNaturalMotion == null ? 0
+                : senNaturalMotion.consumeNaturalBlinkStarts();
+        naturalBlinkStarts += performance.consumeNaturalBlinkStarts();
         if (!staticMode) setParameter("ParamBreath", performance.getBreathValue());
         pendingEarPhysicsDrive = performance.getEarPhysicsDrive();
         pendingEarPhysicsMix = performance.getEarPhysicsMix();
@@ -1641,6 +1650,16 @@ final class SenLive2DModel extends CubismUserModel {
         performance.triggerEarTwitch();
     }
 
+    void triggerSingleEarTwitch() {
+        performance.triggerSingleEarTwitch();
+    }
+
+    int consumeNaturalBlinkStarts() {
+        int count = naturalBlinkStarts;
+        naturalBlinkStarts = 0;
+        return count;
+    }
+
     void setEarTuning(float speedPercent, float amplitudePercent) {
         performance.setEarTuning(speedPercent, amplitudePercent);
     }
@@ -1915,7 +1934,7 @@ final class SenLive2DModel extends CubismUserModel {
             isolatedEarPhysics = CubismPhysics.create(physicsBytes);
             if (physics != null) {
                 // Run the ordinary rig and an independent hidden slow-blink rig from the same
-                // pre-physics parameters. Only the latter's three rabbit-ear outputs are copied
+                // pre-physics parameters. Only the latter's rabbit-ear outputs are copied
                 // back, so eyes, head angles, hair, body, tail and every other physics output
                 // remain exactly as produced by the ordinary pass.
                 updateScheduler.addUpdatableList(new ACubismUpdater(600) {

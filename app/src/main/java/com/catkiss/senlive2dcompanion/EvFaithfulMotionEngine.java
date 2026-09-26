@@ -66,6 +66,7 @@ final class EvFaithfulMotionEngine {
     private float shiftDuration;
     private float nextBlinkAt;
     private float blinkStartedAt = -1000.0f;
+    private int naturalBlinkStarts;
     private float bodyFollowStrength;
     private float bodyX;
     private float bodyY;
@@ -166,6 +167,12 @@ final class EvFaithfulMotionEngine {
         blinkStartedAt = elapsed;
         nextBlinkAt = elapsed + BLINK_TOTAL_SECONDS + BLINK_GAP_MIN_SECONDS
                 + expo(BLINK_GAP_MEAN_SECONDS);
+    }
+
+    int consumeNaturalBlinkStarts() {
+        int count = naturalBlinkStarts;
+        naturalBlinkStarts = 0;
+        return count;
     }
 
     void forceBodySweep(String parameter, float value) {
@@ -343,7 +350,10 @@ final class EvFaithfulMotionEngine {
     }
 
     private float blinkClose() {
-        if (elapsed >= nextBlinkAt) forceBlink();
+        if (elapsed >= nextBlinkAt) {
+            forceBlink();
+            naturalBlinkStarts++;
+        }
         float time = elapsed - blinkStartedAt;
         if (time < 0.0f || time >= BLINK_TOTAL_SECONDS) return 0.0f;
         float progress = time < BLINK_CLOSE_SECONDS

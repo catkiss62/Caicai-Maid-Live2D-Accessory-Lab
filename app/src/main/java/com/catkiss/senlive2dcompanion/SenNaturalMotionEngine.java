@@ -41,6 +41,7 @@ final class SenNaturalMotionEngine {
     private float nextGazeAt;
     private float nextBlinkAt;
     private float blinkStartedAt = -1000.0f;
+    private int naturalBlinkStarts;
 
     SenNaturalMotionEngine(EvMotionPack pack) {
         this.pack = pack;
@@ -97,6 +98,12 @@ final class SenNaturalMotionEngine {
     void forceBlink() {
         blinkStartedAt = elapsed;
         nextBlinkAt = elapsed + .34f + 2.0f + random.nextFloat() * 2.5f;
+    }
+
+    int consumeNaturalBlinkStarts() {
+        int count = naturalBlinkStarts;
+        naturalBlinkStarts = 0;
+        return count;
     }
 
     Map<String, Float> getLastWrites() {
@@ -195,7 +202,10 @@ final class SenNaturalMotionEngine {
     }
 
     private void applyBlink(SenPerformanceEngine.ParameterWriter writer) {
-        if (elapsed >= nextBlinkAt) forceBlink();
+        if (elapsed >= nextBlinkAt) {
+            forceBlink();
+            naturalBlinkStarts++;
+        }
         float time = elapsed - blinkStartedAt;
         if (time < 0.0f || time >= .34f) return;
         float close;
