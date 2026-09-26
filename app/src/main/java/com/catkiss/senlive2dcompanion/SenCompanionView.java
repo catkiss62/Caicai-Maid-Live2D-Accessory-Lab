@@ -273,6 +273,10 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         queueRenderer(() -> renderer.setFrontHairExperimentEnabled(enabled));
     }
 
+    public void setRightHairFollowFactor(float factor) {
+        queueRenderer(() -> renderer.setRightHairFollowFactor(factor));
+    }
+
     public void pickMaidHairPoint(float x, float y) {
         queueRenderer(() -> renderer.pickMaidHairPoint(x, y));
     }

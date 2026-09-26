@@ -42,9 +42,10 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.35 · 呆毛右侧跟随微调";
+    private static final String VERSION = "v0.1.36 · 呆毛右转即时校准";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
     private static final String FRONT_HAIR_POINT_KEY = "maid_front_hair_pick_v1";
+    private static final String RIGHT_HAIR_FOLLOW_KEY = "maid_right_hair_follow_factor_v1";
     private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
             CompositeOverlayGroup.TAIL,
             CompositeOverlayGroup.AHOGE,
@@ -75,6 +76,8 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     private boolean pickingMaidHairPoint;
     private boolean frontHairExperimentEnabled;
     private Button hairPickButton;
+    private TextView rightHairTuningText;
+    private float rightHairFollowFactor = 1f;
     private boolean whiteSocks;
     private float stageScale = 1f;
     private float stageX;
@@ -106,8 +109,11 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 prefs.getString("ear_adjustment_target", EarAdjustmentTarget.PAIR.id));
         staticMode = prefs.getBoolean("static_mode", false);
         geometryConstraintEnabled = prefs.getBoolean("geometry_constraint_enabled", true);
+        rightHairFollowFactor = Math.max(0f, Math.min(2.5f,
+                prefs.getFloat(RIGHT_HAIR_FOLLOW_KEY, 1f)));
         buildUi();
         companionView.setGeometryConstraintEnabled(geometryConstraintEnabled);
+        companionView.setRightHairFollowFactor(rightHairFollowFactor);
         companionView.setMaidHairPoint(prefs.getString(HAIR_POINT_KEY, ""));
         companionView.setFrontHairPoint(prefs.getString(FRONT_HAIR_POINT_KEY, ""));
         loadModels();
@@ -247,6 +253,17 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                     : "呆毛发根：v0.1.30 默认");
         });
         panel.addView(frontHairButton);
+        rightHairTuningText = text("", 10, Color.rgb(225, 204, 240));
+        panel.addView(rightHairTuningText);
+        updateRightHairTuningText();
+        LinearLayout rightHairRow = row();
+        rightHairRow.addView(actionButton("右转少一点", () -> adjustRightHairFollow(-.25f)),
+                weighted());
+        rightHairRow.addView(actionButton("恢复上版", () -> setRightHairFollow(.5f)),
+                weighted());
+        rightHairRow.addView(actionButton("右转多一点", () -> adjustRightHairFollow(.25f)),
+                weighted());
+        panel.addView(rightHairRow);
         hairPickButton = panelButton("点选呆毛接入的头发位置");
         hairPickButton.setOnClickListener(v -> {
             pickingMaidHairPoint = !pickingMaidHairPoint;
@@ -266,8 +283,8 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                     ? "等待点击头发（点此取消）" : "重新点选呆毛连接点");
         });
         panel.addView(hairPickButton);
-        panel.addView(text("先在中立姿势点可见表层发根，再做左右大幅；试验档以头部刚性位移"
-                        + "带动选中发根，只平移呆毛，点按钮可立即回到 v0.1.30 默认呆毛。",
+        panel.addView(text("先在中立姿势点可见表层发根，再做左右大幅；右转到最远处可即时调整"
+                        + "上方的跟随量，只作用于试验档的右转根点。点试验按钮可回到 v0.1.30 默认呆毛。",
                 9, Color.rgb(180, 159, 199)));
         LinearLayout staticRow = row();
         Button staticButton = panelButton(staticMode ? "完全静止：开启" : "完全静止：关闭");
@@ -548,6 +565,25 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         }
     }
 
+    private void adjustRightHairFollow(float step) {
+        setRightHairFollow(Math.round((rightHairFollowFactor + step) * 4f) / 4f);
+    }
+
+    private void setRightHairFollow(float factor) {
+        rightHairFollowFactor = Math.max(0f, Math.min(2.5f, factor));
+        prefs.edit().putFloat(RIGHT_HAIR_FOLLOW_KEY, rightHairFollowFactor).apply();
+        companionView.setRightHairFollowFactor(rightHairFollowFactor);
+        updateRightHairTuningText();
+    }
+
+    private void updateRightHairTuningText() {
+        if (rightHairTuningText != null) {
+            rightHairTuningText.setText(String.format(java.util.Locale.ROOT,
+                    "试验档右转跟随：%.2f×（自动保存；上版为 0.50×）",
+                    rightHairFollowFactor));
+        }
+    }
+
     private void selectMotion(CompositeTestMotion motion) {
         selectedMotion = motion;
         companionView.setCompositeTestMotion(motion.id);
@@ -675,7 +711,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.35.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.36.json");
         });
     }
 

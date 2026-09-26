@@ -95,6 +95,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float lastRigidHairDeltaX;
     private float lastRigidHairDeltaY;
     private float lastRightHairFollowX;
+    private float rightHairFollowFactor = 1f;
     private volatile boolean frontHairExperimentEnabled;
     private float lastRootAfterFlexGap;
     private float lastRootAfterFinalLockGap;
@@ -225,6 +226,11 @@ final class SenRenderer implements GLSurfaceView.Renderer {
         if (enabled && frontHairPointJson.isEmpty()) {
             listener.onStatus("表层发根试验：请先点击“点选表层发根”，再点画面中的可见头发");
         }
+    }
+
+    void setRightHairFollowFactor(float factor) {
+        rightHairFollowFactor = Math.max(0f, Math.min(2.5f, factor));
+        ahogeMotionResetRequested = true;
     }
 
     void pickMaidHairPoint(float screenX, float screenY) {
@@ -406,6 +412,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     .put("front_hair_rigid_minus_mesh_x_clip", lastRigidHairDeltaX)
                     .put("front_hair_rigid_minus_mesh_y_clip", lastRigidHairDeltaY)
                     .put("front_hair_right_follow_x_clip", lastRightHairFollowX)
+                    .put("front_hair_right_follow_factor", rightHairFollowFactor)
                     .put("gross_head_scale_response", geometryConstraintEnabled ? 0 : .85)
                     .put("stage_gesture_drives_physics", false)
                     .put("enabled", geometryConstraintEnabled));
@@ -440,7 +447,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.35-right-hair-follow";
+            return "0.1.36-right-hair-live-tuning";
         }
     }
 
@@ -1029,8 +1036,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 // displacement already measured against the skinning point. This vanishes at
                 // neutral and leaves the accepted opposite turn and all mesh widths untouched.
                 if (model.horizontalHeadTurnSigned() > 0f) {
-                    lastRightHairFollowX = Math.min(.025f,
-                            Math.max(0f, lastRigidHairDeltaX) * .5f);
+                    lastRightHairFollowX = Math.max(0f, lastRigidHairDeltaX)
+                            * rightHairFollowFactor;
                     targetRootX += lastRightHairFollowX;
                 }
             }
