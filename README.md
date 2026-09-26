@@ -3,6 +3,12 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.40 full maid breathing
+
+- The maid's local `ParamBreath` now completes the observed 0→1→0 cycle. The Sen accessory
+  donor retains its previous breath input amplitude, preserving accepted tail dynamics.
+- Includes the parameter catalog and reversible mouth-width preview from v0.1.39.
+
 ## v0.1.39 maid parameter semantics
 
 - Records 21 visually calibrated maid parameters, their actual CDI IDs, observed ranges,

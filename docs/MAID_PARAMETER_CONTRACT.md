@@ -6,7 +6,7 @@
 
 | 类别 | 模型参数 ID | 观察范围 | - 端 / 0 端 | + 端 | 用法 |
 | --- | --- | --- | --- | --- | --- |
-| 呼吸 | `ParamBreath` | 0～1 | 呼吸一端 | 呼吸另一端 | 平滑 0→1→0 是完整一轮，持续自主运行。当前本地时钟用约 0.08～0.92 正弦；也驱动 Sen 尾巴原生物理。 |
+| 呼吸 | `ParamBreath` | 0～1 | 呼吸一端 | 呼吸另一端 | 平滑 0→1→0 是完整一轮，女仆主体持续自主运行；Sen 尾巴沿用已确认的约 0.08～0.92 输入。 |
 | 嘴 | `ParamMouthForm` | -1～1 | 不高兴 | 顽皮笑 | 临时表情目标。 |
 | 嘴 | `ParamMouthOpenY` | 0～1 | 闭嘴 | 张嘴 | TTS 播放时交给口型，不由 JEV 持续覆盖。 |
 | 嘴 | `MOUTHX` | -1～1 | 左歪嘴 | 右歪嘴 | 真实 ID 全大写，不能按 Sen 的 `ParamMouthX` 推断。 |
@@ -32,11 +32,11 @@
 
 ## 当前实现与后续接入建议
 
-- 本测试应用已有 E.V 忠实待机引擎，并有 Sen 原生/自然模式；本地循环覆盖头身微动、视线和自主眨眼。`SenLive2DModel.update()` 每帧把 `SenPerformanceEngine.getBreathValue()` 写给主模型，配件层也把它写给 Sen 供体尾巴物理。v0.1.39 不另起一套待机随机调度，也不让 AI 持续调用 API 来实现呼吸/眨眼。
+- 本测试应用已有 E.V 忠实待机引擎，并有 Sen 原生/自然模式；本地循环覆盖头身微动、视线和自主眨眼。`SenLive2DModel.update()` 每帧把同一时钟的 `getFullBreathValue()`（0～1）写给女仆主体，配件层沿用 `getBreathValue()`（约 0.08～0.92）驱动 Sen 供体尾巴物理，以保留已确认的尾巴动态。v0.1.40 不另起一套待机随机调度，也不让 AI 持续调用 API 来实现呼吸/眨眼。
 - 当前大幅头部测试调用 `ParamAngleX3`、`ParamAngleY2`，与 CDI 的“捕”参数 `ParamAngleX`、`ParamAngleY` 并非同一可见响应。以后要让 JEV 控制可见头转，应在主模型实机验证驱动 ID；不要照标签机械替换。三配件的根点由女仆模型最终网格单向跟随，因此应先完成主模型更新，再计算配件投影。
 - 建议先把此 JSON 用作模型专属参数白名单/提示资料，JEV 只给短时反应或说话关键帧目标（目标 ID、值、时长、可中断优先级）；本地待机在未覆盖的通道继续运行。显式预设优先于 JEV；TTS 占用张嘴参数；自发眨眼占用未请求的眼睑。计划结束后回到当时的下层状态，而不是强制把所有参数归零。
 - SoulLink Emotion SDK 的[官方接入教程](https://github.com/nanlingyin/soullink-emotion-sdk/blob/main/docs/integration-tutorial.md)将 Idle 呼吸/眨眼/注视保留在本地 engine，把 JEV 作为说话期间部分真实参数 ID 的短时关键帧覆盖层。这是架构参考，当前 Android/Cubism Java 项目尚未接入其 TypeScript runtime，也没有配置 JEV。优先在 AI 伴侣项目已有回复、TTS、情绪链路中安排 JEV 请求时机，先用测试项目验证参数通道与优先级；不需要为每帧待机请求模型。
 
 ## 下轮决策点
 
-真机先看 `PUCKER=1` 与原脸型对照；确认后才决定是否升为默认。之后再选一两个复合表情（例如 wink）验证主模型参数、预设动作和配件同时运行。JEV 调用策略应在 AI 伴侣的单 DeepSeek / DeepSeek+Gemini 现有请求编排中设计，避免在测试仓增设一条独立的每帧 API 路径。
+真机先看 `PUCKER=1` 与原脸型对照，并观察完整呼吸是否自然；确认后才决定脸型是否升为默认。之后再选一两个复合表情（例如 wink）验证主模型参数、预设动作和配件同时运行。JEV 调用策略应在 AI 伴侣的单 DeepSeek / DeepSeek+Gemini 现有请求编排中设计，避免在测试仓增设一条独立的每帧 API 路径。

@@ -387,6 +387,10 @@ final class SenPerformanceEngine {
         return 0.50f + 0.42f * (float) Math.sin(elapsed * 1.55f);
     }
 
+    float getFullBreathValue() {
+        return 0.50f + 0.50f * (float) Math.sin(elapsed * 1.55f);
+    }
+
     private void updateEmotion(float dt, ParameterWriter writer) {
         if (emotionTransitionTime < EMOTION_TRANSITION_SECONDS) {
             emotionTransitionTime = Math.min(EMOTION_TRANSITION_SECONDS,

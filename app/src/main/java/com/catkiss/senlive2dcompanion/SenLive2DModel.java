@@ -403,7 +403,9 @@ final class SenLive2DModel extends CubismUserModel {
         naturalBlinkStarts += senNaturalMotion == null ? 0
                 : senNaturalMotion.consumeNaturalBlinkStarts();
         naturalBlinkStarts += performance.consumeNaturalBlinkStarts();
-        if (!staticMode) setParameter("ParamBreath", performance.getBreathValue());
+        // The maid completes the owner's calibrated 0→1→0 breath cycle. Keep the Sen donor's
+        // established 0.08–0.92 input below so the already approved tail motion is unchanged.
+        if (!staticMode) setParameter("ParamBreath", performance.getFullBreathValue());
         pendingEarPhysicsDrive = performance.getEarPhysicsDrive();
         pendingEarPhysicsMix = performance.getEarPhysicsMix();
         pendingEarPhysicsActive = performance.isEarPhysicsActive();

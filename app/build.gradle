@@ -18,8 +18,8 @@ android {
         applicationId 'com.catkiss.caicaimaidaccessorylab'
         minSdk 26
         targetSdk 34
-        versionCode 40
-        versionName '0.1.39-maid-parameter-semantics'
+        versionCode 41
+        versionName '0.1.40-maid-parameter-semantics'
     }
 
     signingConfigs {

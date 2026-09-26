@@ -1,5 +1,10 @@
 # 菜菜女仆配件实验室 · 项目总账
 
+## v0.1.40（女仆呼吸走满范围，Sen 尾巴沿用原输入）
+
+- 对照用户给出的“`ParamBreath` 0→1→0 是完整呼吸”，v0.1.39 的女仆主体沿用 Sen 时钟但仅实际走到约 0.08～0.92；因此新增同相位、同周期、幅度 0～1 的 `getFullBreathValue()`，仅供女仆主体自主呼吸。Sen 供体尾巴仍使用既有 `getBreathValue()`（约 0.08～0.92），保留已经确认的尾巴物理输入。静止模式不推进，其他待机、表情、三配件逻辑及 `PUCKER=1` 测试保持。模型真实视觉效果仍需真机确认。
+- 构建记录：待 GitHub Actions 完成后补充。
+
 ## v0.1.39（女仆参数语义清单与嘴宽试验；待真机确认）
 
 - 用户逐项观察的呼吸、嘴部、头身、眼球、眼睑、笑眼和眉眼共 21 个参数已写入应用资产 `maid-parameter-semantics-v1.json`，包括真实 CDI ID、观察范围、端点含义、插值/离散方式、控制权及 wink 组合；人读版为 `docs/MAID_PARAMETER_CONTRACT.md`。区分女仆的 `MOUTHX`/`SHRUG`/`OUT`/`PUCKER` 与 Sen 参数；“角度 X/Y-捕”的 `ParamAngleX/Y` 与已验证可见大幅运动用的 `ParamAngleX3/Y2` 也分开标注。所列数值和视觉方向来自用户观察，不能冒充 .moc3 Core 的实际限幅。
