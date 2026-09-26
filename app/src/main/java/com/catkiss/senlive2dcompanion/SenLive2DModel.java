@@ -13,6 +13,7 @@ import com.live2d.sdk.cubism.framework.motion.CubismExpressionMotion;
 import com.live2d.sdk.cubism.framework.motion.CubismExpressionMotionManager;
 import com.live2d.sdk.cubism.framework.motion.CubismLipSyncUpdater;
 import com.live2d.sdk.cubism.framework.motion.CubismMotion;
+import com.live2d.sdk.cubism.framework.motion.CubismMotionManager;
 import com.live2d.sdk.cubism.framework.motion.CubismMotionQueueEntry;
 import com.live2d.sdk.cubism.framework.motion.CubismPoseUpdater;
 import com.live2d.sdk.cubism.framework.motion.IParameterProvider;
@@ -178,8 +179,7 @@ final class SenLive2DModel extends CubismUserModel {
     private final Map<String, PresetBlend> maidPresetBlends = new LinkedHashMap<>();
     private final Set<String> activeExpressionNames = new LinkedHashSet<>();
     private final Map<String, CubismMotion> nativeMotions = new HashMap<>();
-    private final com.live2d.sdk.cubism.framework.motion.CubismMotionQueueManager
-            angryVaporManager = new com.live2d.sdk.cubism.framework.motion.CubismMotionQueueManager();
+    private final CubismMotionManager angryVaporManager = new CubismMotionManager();
     private CubismMotion angryVaporMotion;
     private boolean winkOwnsPeace;
 
