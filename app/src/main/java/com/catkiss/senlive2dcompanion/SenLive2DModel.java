@@ -28,6 +28,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -258,6 +259,14 @@ final class SenLive2DModel extends CubismUserModel {
     private boolean[] earFinScreenLeftFilter;
     private boolean[] earFinScreenRightFilter;
     private float angryMouthGuardSeconds;
+    private MeshAnchorFrame smallNeckFrame;
+    private float smallNeckCorrectionX;
+    private float smallNeckCorrectionY;
+    private final ArrayDeque<JSONObject> presetMixSamples = new ArrayDeque<>();
+    private float presetMixSampleClock;
+    private float presetMixTrialClock = -1f;
+    private int presetMixTrialStage;
+    private String presetMixTrialEvent = "manual";
     private OverlayCalibration.AhogeShape ahogeShape =
             new OverlayCalibration.AhogeShape(1f, 1f, 0f);
     private final EnumMap<CompositeOverlayGroup, boolean[]> compositeGroupFilters =
@@ -396,6 +405,7 @@ final class SenLive2DModel extends CubismUserModel {
         }
         naturalBlinkStarts = 0;
         float frameDelta = staticMode ? 0.0f : deltaSeconds;
+        advancePresetMixTrial(frameDelta);
         if (motionDiagnostic != null) motionDiagnostic.beforeFrame(deltaSeconds);
         // Always restore the captured appearance base. Dynamic features must never accumulate
         // into part-selection, opacity or colour parameters from a previous frame.
@@ -459,7 +469,12 @@ final class SenLive2DModel extends CubismUserModel {
         if (hasVtsBaseProfile) applyOutfitParameters(outfitPreset, null);
         applyCompositeTestMotion(frameDelta);
         if (!staticMode) updateLoadingSpinner(frameDelta);
+        // Compare exactly the same final pose with and without the three authored small-form
+        // deformers. Keeping the collar knot fixed makes both directions pivot about the neck.
+        float[] neckWithoutSmall = evaluateNeckWithoutSmall();
         updateModelWithOutfitShapeLock();
+        correctSmallFormNeck(neckWithoutSmall);
+        recordPresetMixFrame(frameDelta);
         if (motionDiagnostic != null) {
             motionDiagnostic.afterFrame(this);
             if (motionDiagnostic.isFinished()) {
@@ -1135,6 +1150,11 @@ final class SenLive2DModel extends CubismUserModel {
         bodyCarrierFrame = MeshAnchorFrame.fromLargestStableTriangle(
                 model, collectChildDrawables(bodyParts));
         if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
+            MeshAnchorFrame collar = MeshAnchorFrame.fromLargestStableTriangle(
+                    model, collectChildDrawables(new String[]{"Part27"}));
+            smallNeckFrame = collar == null ? null
+                    : MeshAnchorFrame.fromTriangleNearNormalizedPoint(
+                            model, collar.drawableIndex, .5f, .5f);
             // Draw order and motion attachment are separate concerns. All three head accessories
             // are pinned to different places on the maid's large face mesh, whose deformation is
             // reliable during authored head turns. Local hair material sections are still used
@@ -1675,7 +1695,8 @@ final class SenLive2DModel extends CubismUserModel {
         maidBlend(name).aim(false);
         if ("1生气".equals(name)) {
             fadeOutManager(angryVaporManager, PRESET_BLEND_SECONDS);
-            angryMouthGuardSeconds = 0f;
+            // The authored face briefly exposes an open-mouth keyform while fading out too.
+            angryMouthGuardSeconds = PRESET_BLEND_SECONDS + .08f;
         }
         if ("比耶wink吐舌".equals(name) && winkOwnsPeace) {
             winkOwnsPeace = false;
@@ -1745,6 +1766,137 @@ final class SenLive2DModel extends CubismUserModel {
             blendParameterToward("ParamEyeLSmile", 1f, wink);
         }
         if (tongue > .00001f) blendParameterToward("OUT", 1f, tongue);
+    }
+
+    void startPresetMixTrial() {
+        if (compositeRole != CompositeModelRole.MAID_PRIMARY) return;
+        for (String name : new String[]{"2菜单", "2点单", "2餐盘左", "2餐盘右",
+                "1生气", "wink吐舌"}) stopMaidPreset(name);
+        presetMixSamples.clear();
+        presetMixSampleClock = 0f;
+        presetMixTrialClock = 0f;
+        presetMixTrialStage = 0;
+        presetMixTrialEvent = "start";
+    }
+
+    private void advancePresetMixTrial(float dt) {
+        if (presetMixTrialClock < 0f || staticMode) return;
+        presetMixTrialClock += Math.max(0f, dt);
+        float[] at = {0f, .8f, 1.6f, 2.4f, 3.2f, 4.0f, 4.8f, 5.6f};
+        while (presetMixTrialStage < at.length
+                && presetMixTrialClock >= at[presetMixTrialStage]) {
+            switch (presetMixTrialStage++) {
+                case 0: startMaidPreset("2菜单"); presetMixTrialEvent = "menu_on"; break;
+                case 1: startMaidPreset("2点单"); presetMixTrialEvent = "menu_to_order"; break;
+                case 2: startMaidPreset("2餐盘左"); presetMixTrialEvent = "left_tray_on"; break;
+                case 3: startMaidPreset("2餐盘右"); presetMixTrialEvent = "right_tray_on"; break;
+                case 4: startMaidPreset("1生气"); presetMixTrialEvent = "angry_on"; break;
+                case 5:
+                    startMaidPreset("wink吐舌");
+                    presetMixTrialEvent = "angry_to_wink";
+                    break;
+                case 6: stopMaidPreset("wink吐舌"); presetMixTrialEvent = "wink_off"; break;
+                case 7:
+                    stopMaidPreset("2餐盘左");
+                    stopMaidPreset("2餐盘右");
+                    presetMixTrialEvent = "trays_off";
+                    break;
+                default: break;
+            }
+        }
+        if (presetMixTrialClock > 6.2f) presetMixTrialClock = -1f;
+    }
+
+    /** Evaluate one frame with only the small-form authored offsets removed. No scheduler or
+     * physics is advanced in this pass; the final live parameters are restored before drawing. */
+    private float[] evaluateNeckWithoutSmall() {
+        smallNeckCorrectionX = 0f;
+        smallNeckCorrectionY = 0f;
+        PresetBlend blend = maidPresetBlends.get("变小");
+        if (smallNeckFrame == null || blend == null || blend.weight < .00001f) return null;
+        String[] ids = {"Param154", "Param157", "Param156"};
+        int[] indices = new int[ids.length];
+        float[] liveValues = new float[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            indices[i] = findParameterIndex(ids[i]);
+            if (indices[i] < 0) return null;
+        }
+        for (int i = 0; i < ids.length; i++) {
+            liveValues[i] = model.getModel().getParameterViews()[indices[i]].getValue();
+            model.getModel().getParameterViews()[indices[i]].setValue(
+                    liveValues[i] - blend.weight);
+        }
+        model.update();
+        float[] without = neckCenter(smallNeckFrame.currentTriangle(model));
+        for (int i = 0; i < indices.length; i++) {
+            model.getModel().getParameterViews()[indices[i]].setValue(liveValues[i]);
+        }
+        return without;
+    }
+
+    private static float[] neckCenter(float[] triangle) {
+        if (triangle == null) return null;
+        return new float[]{(triangle[0] + triangle[2] + triangle[4]) / 3f,
+                (triangle[1] + triangle[3] + triangle[5]) / 3f};
+    }
+
+    private void correctSmallFormNeck(float[] without) {
+        if (without == null) return;
+        float[] with = neckCenter(smallNeckFrame.currentTriangle(model));
+        if (with == null) return;
+        smallNeckCorrectionX = without[0] - with[0];
+        smallNeckCorrectionY = without[1] - with[1];
+        for (int drawable = 0; drawable < model.getDrawableCount(); drawable++) {
+            float[] vertices = model.getDrawableVertices(drawable);
+            if (vertices == null) continue;
+            for (int i = 0; i + 1 < vertices.length; i += 2) {
+                vertices[i] += smallNeckCorrectionX;
+                vertices[i + 1] += smallNeckCorrectionY;
+            }
+        }
+    }
+
+    private void recordPresetMixFrame(float dt) {
+        if (staticMode || model == null) return;
+        presetMixSampleClock += Math.max(0f, dt);
+        if (presetMixSampleClock < .05f) return;
+        presetMixSampleClock = 0f;
+        try {
+            JSONObject sample = new JSONObject()
+                    .put("trial_seconds", presetMixTrialClock)
+                    .put("event", presetMixTrialEvent)
+                    .put("neck_correction_x", smallNeckCorrectionX)
+                    .put("neck_correction_y", smallNeckCorrectionY);
+            for (String name : new String[]{"2菜单", "2点单", "2餐盘左", "2餐盘右",
+                    "1生气", "变小", "wink吐舌"}) {
+                PresetBlend blend = maidPresetBlends.get(name);
+                sample.put("weight_" + name, blend == null ? 0f : blend.weight);
+            }
+            for (String id : new String[]{"Param79", "Param128", "Param119", "Param115",
+                    "Param148", "PUCKER", "ParamMouthOpenY", "ParamMouthForm",
+                    "Param154", "Param157", "Param156", "ParamEyeLOpen", "OUT"}) {
+                int index = findParameterIndex(id);
+                if (index >= 0) sample.put(id, model.getParameterValue(index));
+            }
+            presetMixSamples.addLast(sample);
+            if (presetMixSamples.size() > 360) presetMixSamples.removeFirst();
+        } catch (JSONException ignored) {
+            // The render path must keep running even if a diagnostic sample cannot serialize.
+        }
+    }
+
+    JSONObject buildPresetMixDiagnostic() throws JSONException {
+        PresetBlend small = maidPresetBlends.get("变小");
+        return new JSONObject()
+                .put("sample_interval_seconds", .05f)
+                .put("samples", new JSONArray(new ArrayList<>(presetMixSamples)))
+                .put("small_form_weight", small == null ? 0f : small.weight)
+                .put("small_neck_anchor", smallNeckFrame == null
+                        ? JSONObject.NULL : smallNeckFrame.toJson())
+                .put("small_neck_correction_x", smallNeckCorrectionX)
+                .put("small_neck_correction_y", smallNeckCorrectionY)
+                .put("angry_mouth_guard_seconds", angryMouthGuardSeconds)
+                .put("trial_event", presetMixTrialEvent);
     }
 
     private void blendParameterToward(String id, float target, float weight) {

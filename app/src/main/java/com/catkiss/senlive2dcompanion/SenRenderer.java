@@ -432,6 +432,8 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             root.put("calibration", overlayCalibration.toJsonObject());
             root.put("maid_carrier_anchors", model == null
                     ? JSONObject.NULL : model.buildCarrierInventory());
+            root.put("maid_parameter_mixer", model == null
+                    ? JSONObject.NULL : model.buildPresetMixDiagnostic());
             root.put("maid_part_layer_calibration", model == null
                     ? JSONObject.NULL : model.buildLayerCalibrationInventory(overlayCalibration));
             root.put("sen_runtime_inventory", overlayModel == null
@@ -447,7 +449,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.37-blink-ear-sync-ahoge-final";
+            return "0.1.42-mix-neck-angry-exit";
         }
     }
 
@@ -467,6 +469,10 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     void applyExpression(String name) {
         if (model != null) model.setExpression(name);
+    }
+
+    void runPresetMixTrial() {
+        if (model != null) model.startPresetMixTrial();
     }
 
     void resetNativePresets() {

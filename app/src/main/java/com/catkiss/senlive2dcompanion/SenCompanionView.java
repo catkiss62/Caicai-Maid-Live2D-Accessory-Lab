@@ -285,6 +285,10 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         queueRenderer(renderer::emitCompositeReport);
     }
 
+    public void runPresetMixTrial() {
+        queueRenderer(renderer::runPresetMixTrial);
+    }
+
     public boolean screenToModelNormalized(float screenX, float screenY, float[] result) {
         return !released && renderer.screenToModelNormalized(screenX, screenY, result);
     }
