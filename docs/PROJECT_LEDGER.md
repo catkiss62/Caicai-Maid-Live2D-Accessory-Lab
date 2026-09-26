@@ -5,7 +5,7 @@
 - 用户逐项观察的呼吸、嘴部、头身、眼球、眼睑、笑眼和眉眼共 21 个参数已写入应用资产 `maid-parameter-semantics-v1.json`，包括真实 CDI ID、观察范围、端点含义、插值/离散方式、控制权及 wink 组合；人读版为 `docs/MAID_PARAMETER_CONTRACT.md`。区分女仆的 `MOUTHX`/`SHRUG`/`OUT`/`PUCKER` 与 Sen 参数；“角度 X/Y-捕”的 `ParamAngleX/Y` 与已验证可见大幅运动用的 `ParamAngleX3/Y2` 也分开标注。所列数值和视觉方向来自用户观察，不能冒充 .moc3 Core 的实际限幅。
 - 新增独立 `PUCKER=1`“嘴宽 1”开关供真机比较脸型；每帧在表情、待机及测试动作后临时覆盖，关闭后由既有参数层恢复。用户确认前不设默认，也不交给待机。现有呼吸、本地待机、自主眨眼、耳鳍联动和三配件渲染路径未更改；没有接入模型 API 或新建第二套待机随机器。
 - 参考 SoulLink Emotion SDK 官方接入教程：本地 Idle 持续控制呼吸/眨眼/视线，JEV 可按真实 ID 生成说话/反应期间的短时目标。建议未来在 AI 伴侣已有 DeepSeek/Gemini、回复与 TTS 链路中调度 JEV；本实验室先验证参数写入、优先级与恢复，尤其是 wink、吐舌、预设与口型同帧相遇。是否移植 SDK 的 TypeScript runtime，须结合主项目接口决定。本次仅落实参数契约和脸型测试，不宣称已经接入 JEV。
-- 构建记录：待 GitHub Actions 完成后补充提交、运行、APK 校验和下载链接。
+- 本地源码提交 `8f2d9ea` 与远端等价提交 `62286a81069343c545dda18e29911764e32c800b` 的文件树同为 `59eaac63f65979c02c8b9ceb4f5f7117f68d088f`。GitHub Actions [36234609227](https://github.com/catkiss62/Caicai-Maid-Live2D-Accessory-Lab/actions/runs/36234609227) 成功；artifact ZIP 与 APK 压缩条目 CRC 均通过，APK 内 472 个条目包含新参数 JSON，3,879,996 bytes，SHA-256 `6ef32f28893a21755b939416d87fdfa0f4b48e8497a14efc7e14f9f71059b2bb`。编译与打包完整不代表 `PUCKER=1` 的脸型效果已经真机确认。
 
 ## v0.1.38（三配件素材定版收口）
 
