@@ -3,6 +3,17 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.38 material baseline
+
+- Fixes the accepted `ArtMesh386` front-hair point, 1.5× right-turn follow, calibrated ahoge
+  shape, ear positions and layers in the app defaults. Removes the accessory position, shape,
+  layer, hair-point and old-version comparison controls. Stage pan/zoom and reset remain.
+- The private import ZIP contains the original maid and Sen compiled `.moc3` models, the
+  recoloured accessory textures, physics and a `binding-profile.json` record. The Android
+  renderer performs the cross-model attachment; the two compiled models have not been merged
+  into a single Cubism export. Future head-pat and idle triggers can be developed in the app
+  without rebuilding the accepted visual asset baseline.
+
 ## v0.1.24
 
 - The v0.1.23 device sweep recorded 585 frames and zero native ear-twitch drive. The face
@@ -288,6 +299,7 @@ Purchased models, textures, and generated test packages are intentionally not co
 
 ```text
 accessory-lab.json
+binding-profile.json
 caicai/maid.model3.json
 caicai/...
 sen-accessory/SenAccessory.model3.json

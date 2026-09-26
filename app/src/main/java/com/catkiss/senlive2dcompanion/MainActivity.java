@@ -22,7 +22,6 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -42,14 +41,13 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.37 · 呆毛定版与眨眼耳鳍";
+    private static final String VERSION = "v0.1.38 · 三配件素材收口";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
     private static final String FRONT_HAIR_POINT_KEY = "maid_front_hair_pick_v1";
-    private static final CompositeOverlayGroup[] SELECTABLE_ACCESSORY_GROUPS = {
-            CompositeOverlayGroup.TAIL,
-            CompositeOverlayGroup.AHOGE,
-            CompositeOverlayGroup.EAR_FINS
-    };
+    // The confirmed visible front-hair root from the v0.1.35 device diagnostic.
+    private static final String FINAL_FRONT_HAIR_POINT = "{\"drawableId\":\"ArtMesh386\","
+            + "\"triangleVertexIds\":[129,130,120],"
+            + "\"barycentricWeights\":[0.010805397,0.35519314,0.6340015]}";
     private static final long MAX_EXTRACTED_BYTES = 1_500_000_000L;
     private static final int MAX_ZIP_ENTRIES = 8_000;
 
@@ -60,21 +58,13 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     private SenCompanionView companionView;
     private TextView statusText;
     private TextView summaryText;
-    private TextView calibrationText;
-    private Button earTargetButton;
     private FrameLayout loadingOverlay;
     private TextView loadingText;
     private OverlayCalibration calibration;
-    private CompositeOverlayGroup selectedGroup = CompositeOverlayGroup.EAR_FINS;
-    private EarAdjustmentTarget earAdjustmentTarget = EarAdjustmentTarget.PAIR;
     private CompositeTestMotion selectedMotion = CompositeTestMotion.LIVE;
     private String pendingExportReport;
     private boolean staticMode;
-    private boolean geometryConstraintEnabled = true;
     private boolean stageAdjustmentEnabled;
-    private boolean pickingMaidHairPoint;
-    private boolean frontHairExperimentEnabled = true;
-    private Button hairPickButton;
     private boolean whiteSocks;
     private float stageScale = 1f;
     private float stageX;
@@ -93,30 +83,14 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         modelRoot = new File(getFilesDir(), "caicai-accessory-package");
         importRoot = new File(getFilesDir(), "caicai-accessory-import-temp");
-        calibration = OverlayCalibration.fromJson(
-                prefs.getString(CALIBRATION_KEY, ""));
-        selectedGroup = CompositeOverlayGroup.fromId(
-                prefs.getString("calibration_group", CompositeOverlayGroup.EAR_FINS.id));
-        // GLOBAL is a shared coordinate base, not an accessory. Older builds accidentally exposed
-        // it as a fourth "ahoge + ear fins" selection in the previous/next cycle.
-        if (selectedGroup == CompositeOverlayGroup.GLOBAL) {
-            selectedGroup = CompositeOverlayGroup.EAR_FINS;
-        }
-        earAdjustmentTarget = EarAdjustmentTarget.fromId(
-                prefs.getString("ear_adjustment_target", EarAdjustmentTarget.PAIR.id));
+        // Fix the on-device confirmed accessory transforms; only the whole stage remains adjustable.
+        calibration = OverlayCalibration.defaults();
         staticMode = prefs.getBoolean("static_mode", false);
-        geometryConstraintEnabled = true;
-        prefs.edit().putBoolean("geometry_constraint_enabled", true).apply();
-        if (prefs.getString(FRONT_HAIR_POINT_KEY, "").isEmpty()) {
-            String previousPick = prefs.getString(HAIR_POINT_KEY, "");
-            if (!previousPick.isEmpty()) {
-                prefs.edit().putString(FRONT_HAIR_POINT_KEY, previousPick).apply();
-            }
-        }
+        prefs.edit().putString(CALIBRATION_KEY, calibration.toPreferenceJson())
+                .putString(FRONT_HAIR_POINT_KEY, FINAL_FRONT_HAIR_POINT).apply();
         buildUi();
-        companionView.setGeometryConstraintEnabled(geometryConstraintEnabled);
-        companionView.setMaidHairPoint(prefs.getString(HAIR_POINT_KEY, ""));
-        companionView.setFrontHairPoint(prefs.getString(FRONT_HAIR_POINT_KEY, ""));
+        companionView.setGeometryConstraintEnabled(true);
+        companionView.setFrontHairPoint(FINAL_FRONT_HAIR_POINT);
         companionView.setFrontHairExperimentEnabled(true);
         loadModels();
     }
@@ -161,122 +135,11 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(10), dp(7), dp(10), dp(14));
         scroll.addView(panel);
-        panel.addView(text("菜菜女仆 · Sen 三配件实验室", 16, Color.WHITE));
+        panel.addView(text("菜菜女仆 · 三配件", 16, Color.WHITE));
         summaryText = text("", 10, Color.rgb(203, 188, 218));
         panel.addView(summaryText);
 
-        panel.addView(section("配件位置（数值自动保存）"));
-        LinearLayout groupRow = row();
-        groupRow.addView(actionButton("上一件", () -> stepGroup(-1)), weighted());
-        groupRow.addView(actionButton("下一件", () -> stepGroup(1)), weighted());
-        groupRow.addView(actionButton("显示/隐藏", this::toggleGroup), weighted());
-        panel.addView(groupRow);
-        LinearLayout scaleRow = row();
-        scaleRow.addView(actionButton("缩小", () -> adjust(-.02f, 0, 0)), weighted());
-        scaleRow.addView(actionButton("放大", () -> adjust(.02f, 0, 0)), weighted());
-        scaleRow.addView(actionButton("上移", () -> adjust(0, 0, .01f)), weighted());
-        scaleRow.addView(actionButton("下移", () -> adjust(0, 0, -.01f)), weighted());
-        panel.addView(scaleRow);
-        LinearLayout moveRow = row();
-        moveRow.addView(actionButton("左移", () -> adjust(0, -.01f, 0)), weighted());
-        moveRow.addView(actionButton("右移", () -> adjust(0, .01f, 0)), weighted());
-        moveRow.addView(actionButton("重置当前", this::resetGroup),
-                new LinearLayout.LayoutParams(0, dp(42), 2f));
-        panel.addView(moveRow);
-
-        panel.addView(section("呆毛外形（围绕固定根点）"));
-        LinearLayout ahogeWidthRow = row();
-        ahogeWidthRow.addView(actionButton("收窄", () -> adjustAhogeShape(-.03f, 0f, 0f)), weighted());
-        ahogeWidthRow.addView(actionButton("加宽", () -> adjustAhogeShape(.03f, 0f, 0f)), weighted());
-        ahogeWidthRow.addView(actionButton("变矮", () -> adjustAhogeShape(0f, -.03f, 0f)), weighted());
-        ahogeWidthRow.addView(actionButton("增高", () -> adjustAhogeShape(0f, .03f, 0f)), weighted());
-        panel.addView(ahogeWidthRow);
-        LinearLayout ahogeRotationRow = row();
-        ahogeRotationRow.addView(actionButton("逆时针 2°", () -> adjustAhogeShape(0f, 0f, 2f)), weighted());
-        ahogeRotationRow.addView(actionButton("顺时针 2°", () -> adjustAhogeShape(0f, 0f, -2f)), weighted());
-        panel.addView(ahogeRotationRow);
-
-        panel.addView(section("部件前后图层（按头发素材节）"));
-        LinearLayout layerRow = row();
-        layerRow.addView(actionButton("往后（更容易被遮挡）", () -> adjustLayer(-1)),
-                weighted());
-        layerRow.addView(actionButton("往前（更少遮挡）", () -> adjustLayer(1)),
-                weighted());
-        panel.addView(layerRow);
-        panel.addView(text("绘制层与运动分开；呆毛绘制在头饰前一层。"
-                        + "左右耳鳍图层独立，同一素材节的颜色变体合并为一步。",
-                9, Color.rgb(180, 159, 199)));
-
-        panel.addView(section("耳鳍原生双耳调节"));
-        earTargetButton = panelButton(earAdjustmentTarget.label);
-        earTargetButton.setOnClickListener(v -> stepEarAdjustmentTarget());
-        panel.addView(earTargetButton);
-        LinearLayout earRow2 = row();
-        earRow2.addView(actionButton("向左转", () -> adjustEarRotation(1f)), weighted());
-        earRow2.addView(actionButton("向右转", () -> adjustEarRotation(-1f)), weighted());
-        panel.addView(earRow2);
-        panel.addView(text("整对保留现有零位；画面左/右可分别微调。"
-                        + "双抖仍由 Sen 原生网格负责，不继承头饰显隐。",
-                9, Color.rgb(180, 159, 199)));
-        calibrationText = text("", 10, Color.rgb(225, 204, 240));
-        panel.addView(calibrationText);
-        updateCalibrationText();
-
-        panel.addView(section("静止基准与吻合度动作"));
-        Button geometryButton = panelButton(geometryConstraintEnabled
-                ? "实际网格校正：开启" : "v0.1.16 原版：开启");
-        geometryButton.setOnClickListener(v -> {
-            if (frontHairExperimentEnabled) {
-                setStatus("请先把呆毛发根切回 v0.1.30 默认，再使用 v0.1.16 对照");
-                return;
-            }
-            geometryConstraintEnabled = !geometryConstraintEnabled;
-            prefs.edit().putBoolean("geometry_constraint_enabled", geometryConstraintEnabled).apply();
-            companionView.setGeometryConstraintEnabled(geometryConstraintEnabled);
-            geometryButton.setText(geometryConstraintEnabled
-                    ? "实际网格校正：开启" : "v0.1.16 原版：开启");
-        });
-        panel.addView(geometryButton);
-        Button frontHairButton = panelButton("呆毛跟随：定版（点此看旧版）");
-        frontHairButton.setOnClickListener(v -> {
-            frontHairExperimentEnabled = !frontHairExperimentEnabled;
-            pickingMaidHairPoint = false;
-            hairPickButton.setText(frontHairExperimentEnabled
-                    ? "点选表层发根（点这里，再点画面）" : "重新点选默认版呆毛连接点");
-            if (frontHairExperimentEnabled && !geometryConstraintEnabled) {
-                geometryConstraintEnabled = true;
-                prefs.edit().putBoolean("geometry_constraint_enabled", true).apply();
-                companionView.setGeometryConstraintEnabled(true);
-                geometryButton.setText("实际网格校正：开启");
-            }
-            companionView.setFrontHairExperimentEnabled(frontHairExperimentEnabled);
-            frontHairButton.setText(frontHairExperimentEnabled
-                    ? "呆毛跟随：定版（点此看旧版）"
-                    : "呆毛跟随：v0.1.30 旧版对照（点此恢复定版）");
-        });
-        panel.addView(frontHairButton);
-        hairPickButton = panelButton("点选呆毛接入的头发位置");
-        hairPickButton.setOnClickListener(v -> {
-            pickingMaidHairPoint = !pickingMaidHairPoint;
-            if (pickingMaidHairPoint) {
-                selectMotion(CompositeTestMotion.NEUTRAL);
-                if (!geometryConstraintEnabled) {
-                    geometryConstraintEnabled = true;
-                    prefs.edit().putBoolean("geometry_constraint_enabled", true).apply();
-                    companionView.setGeometryConstraintEnabled(true);
-                    geometryButton.setText("实际网格校正：开启");
-                }
-                setStatus(frontHairExperimentEnabled
-                        ? "请点击画面中可见的表层发根，试验选点优先最前层网格"
-                        : "请点菜菜头发上呆毛接入的位置，可先用整体调整放大");
-            }
-            hairPickButton.setText(pickingMaidHairPoint
-                    ? "等待点击头发（点此取消）" : "重新点选呆毛连接点");
-        });
-        panel.addView(hairPickButton);
-        panel.addView(text("呆毛已采用头部位移跟随与右转 1.5× 定版参数。首次导入请在中立姿势"
-                        + "点选可见发根；旧版对照按钮可随时切回 v0.1.30。",
-                9, Color.rgb(180, 159, 199)));
+        panel.addView(section("运动观察"));
         LinearLayout staticRow = row();
         Button staticButton = panelButton(staticMode ? "完全静止：开启" : "完全静止：关闭");
         staticButton.setOnClickListener(v -> {
@@ -350,11 +213,9 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         diagnostic.addView(stageAdjust, weighted());
         diagnostic.addView(actionButton("还原整体", this::resetStage), weighted());
         panel.addView(diagnostic);
-        panel.addView(text("排查耳鳍颤抖：保持实际网格校正开启，点击“左右大幅”运行两三轮，"
-                        + "让动作继续时直接导出位置诊断 JSON。报告保存最近 900 帧。",
+        panel.addView(text("需要观察跟随时，可运行左右大幅并导出最近 900 帧的位置诊断。",
                 9, Color.rgb(180, 159, 199)));
-        panel.addView(text("点击模型会触发“点击”预设；完全静止时不会触发。"
-                        + "图层以明确的‘往前/往后’按钮校准，诊断会记录实际 Part 与固定三角。",
+        panel.addView(text("点击模型会触发“点击”预设；完全静止时不会触发。",
                 9, Color.rgb(180, 159, 199)));
         page.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -418,13 +279,6 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                     }
                 });
         companionView.setOnTouchListener((view, event) -> {
-            if (pickingMaidHairPoint) {
-                if (event.getActionMasked() == MotionEvent.ACTION_UP
-                        && event.getPointerCount() == 1) {
-                    companionView.pickMaidHairPoint(event.getX(), event.getY());
-                }
-                return true;
-            }
             if (!stageAdjustmentEnabled) {
                 if (!staticMode && event.getActionMasked() == MotionEvent.ACTION_UP) {
                     companionView.applyExpression("点击");
@@ -452,108 +306,6 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
             }
             return true;
         });
-    }
-
-    private void adjust(float scale, float x, float y) {
-        if (selectedGroup == CompositeOverlayGroup.EAR_FINS
-                && earAdjustmentTarget != EarAdjustmentTarget.PAIR) {
-            calibration = calibration.withEarSideDelta(
-                    earAdjustmentTarget == EarAdjustmentTarget.SCREEN_LEFT,
-                    scale, x, y, 0f);
-        } else {
-            calibration = calibration.withDelta(selectedGroup, scale, x, y);
-        }
-        persistCalibration();
-    }
-
-    private void adjustAhogeShape(float width, float height, float rotation) {
-        selectedGroup = CompositeOverlayGroup.AHOGE;
-        prefs.edit().putString("calibration_group", selectedGroup.id).apply();
-        calibration = calibration.withAhogeShapeDelta(width, height, rotation);
-        persistCalibration();
-    }
-
-    private void adjustEarRotation(float rotation) {
-        if (earAdjustmentTarget == EarAdjustmentTarget.PAIR) {
-            calibration = calibration.withEarDelta(0f, 0f, rotation);
-        } else {
-            calibration = calibration.withEarSideDelta(
-                    earAdjustmentTarget == EarAdjustmentTarget.SCREEN_LEFT,
-                    0f, 0f, 0f, rotation);
-        }
-        selectedGroup = CompositeOverlayGroup.EAR_FINS;
-        persistCalibration();
-    }
-
-    private void adjustLayer(int delta) {
-        if (selectedGroup == CompositeOverlayGroup.TAIL) {
-            toast("尾巴固定在最后层，不参与头部图层校准");
-            return;
-        }
-        Boolean screenLeft = null;
-        if (selectedGroup == CompositeOverlayGroup.EAR_FINS
-                && earAdjustmentTarget != EarAdjustmentTarget.PAIR) {
-            screenLeft = earAdjustmentTarget == EarAdjustmentTarget.SCREEN_LEFT;
-        }
-        calibration = calibration.withLayerOffsetDelta(selectedGroup, screenLeft, delta);
-        persistCalibration();
-    }
-
-    private void resetGroup() {
-        if (selectedGroup == CompositeOverlayGroup.EAR_FINS
-                && earAdjustmentTarget != EarAdjustmentTarget.PAIR) {
-            calibration = calibration.resetEarSide(
-                    earAdjustmentTarget == EarAdjustmentTarget.SCREEN_LEFT);
-        } else {
-            calibration = calibration.reset(selectedGroup);
-        }
-        persistCalibration();
-    }
-
-    private void stepEarAdjustmentTarget() {
-        earAdjustmentTarget = earAdjustmentTarget.next();
-        prefs.edit().putString("ear_adjustment_target", earAdjustmentTarget.id).apply();
-        selectedGroup = CompositeOverlayGroup.EAR_FINS;
-        prefs.edit().putString("calibration_group", selectedGroup.id).apply();
-        if (earTargetButton != null) earTargetButton.setText(earAdjustmentTarget.label);
-        updateCalibrationText();
-    }
-
-    private void toggleGroup() {
-        OverlayCalibration.Transform current = calibration.get(selectedGroup);
-        calibration = calibration.withVisible(selectedGroup, !current.visible);
-        persistCalibration();
-    }
-
-    private void stepGroup(int delta) {
-        int current = 0;
-        for (int i = 0; i < SELECTABLE_ACCESSORY_GROUPS.length; i++) {
-            if (SELECTABLE_ACCESSORY_GROUPS[i] == selectedGroup) {
-                current = i;
-                break;
-            }
-        }
-        int index = (current + delta + SELECTABLE_ACCESSORY_GROUPS.length)
-                % SELECTABLE_ACCESSORY_GROUPS.length;
-        selectedGroup = SELECTABLE_ACCESSORY_GROUPS[index];
-        prefs.edit().putString("calibration_group", selectedGroup.id).apply();
-        updateCalibrationText();
-    }
-
-    private void persistCalibration() {
-        prefs.edit().putString(CALIBRATION_KEY,
-                calibration.toPreferenceJson()).apply();
-        companionView.setOverlayCalibration(calibration.toPreferenceJson());
-        updateCalibrationText();
-    }
-
-    private void updateCalibrationText() {
-        if (calibrationText != null) {
-            String target = selectedGroup == CompositeOverlayGroup.EAR_FINS
-                    ? "\n当前按钮调节目标：" + earAdjustmentTarget.shortLabel : "";
-            calibrationText.setText(calibration.describe(selectedGroup)
-                    + target + "（自动保存）");
-        }
     }
 
     private void selectMotion(CompositeTestMotion motion) {
@@ -611,11 +363,11 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
                 prefs.edit()
                         .putString("main_model_path", relativePath(packageBase, main))
                         .putString("accessory_model_path", relativePath(packageBase, accessory))
-                        .remove(HAIR_POINT_KEY).remove(FRONT_HAIR_POINT_KEY)
+                        .remove(HAIR_POINT_KEY)
+                        .putString(FRONT_HAIR_POINT_KEY, FINAL_FRONT_HAIR_POINT)
                         .apply();
                 runOnUiThread(() -> {
-                    companionView.setMaidHairPoint("");
-                    companionView.setFrontHairPoint("");
+                    companionView.setFrontHairPoint(FINAL_FRONT_HAIR_POINT);
                     toast("鲸鱼女仆模型包导入成功");
                     loadModels();
                 });
@@ -645,8 +397,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         }
         showLoading("正在加载菜菜女仆与 Sen 三配件动力层…");
         companionView.setOverlayCalibration(calibration.toPreferenceJson());
-        companionView.setMaidHairPoint(prefs.getString(HAIR_POINT_KEY, ""));
-        companionView.setFrontHairPoint(prefs.getString(FRONT_HAIR_POINT_KEY, ""));
+        companionView.setFrontHairPoint(FINAL_FRONT_HAIR_POINT);
         companionView.setCompositeTestMotion(selectedMotion.id);
         companionView.setStaticMode(staticMode);
         companionView.loadModels(main, accessory, !staticMode,
@@ -683,27 +434,13 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.37.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.38.json");
         });
     }
 
     @Override public void onMaidHairPointPicked(String anchorJson,
                                                boolean pickedFrontHair) {
-        String drawableId;
-        try { drawableId = new JSONObject(anchorJson).optString("drawableId", "头发网格"); }
-        catch (JSONException ignored) { drawableId = "头发网格"; }
-        final String pickedDrawableId = drawableId;
-        runOnUiThread(() -> {
-            prefs.edit().putString(pickedFrontHair
-                    ? FRONT_HAIR_POINT_KEY : HAIR_POINT_KEY, anchorJson).apply();
-            pickingMaidHairPoint = false;
-            hairPickButton.setText(frontHairExperimentEnabled
-                    ? "重新点选表层发根" : "重新点选默认版呆毛连接点");
-            setStatus(pickedFrontHair
-                    ? "试验发根已记录在 " + pickedDrawableId
-                    + "；请做左右大幅比较"
-                    : "已选中顶部头发：呆毛根部现在跟随该点；请看位置是否吻合");
-        });
+        // The release UI does not offer hair-point picking; keep the listener for the renderer API.
     }
 
     private void writeReport(Uri uri) {
@@ -909,31 +646,4 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         return Math.max(min, Math.min(max, value));
     }
 
-    private enum EarAdjustmentTarget {
-        PAIR("pair", "耳鳍调节：整对", "整对"),
-        SCREEN_LEFT("screen_left", "耳鳍调节：画面左", "画面左"),
-        SCREEN_RIGHT("screen_right", "耳鳍调节：画面右", "画面右");
-
-        final String id;
-        final String label;
-        final String shortLabel;
-
-        EarAdjustmentTarget(String id, String label, String shortLabel) {
-            this.id = id;
-            this.label = label;
-            this.shortLabel = shortLabel;
-        }
-
-        EarAdjustmentTarget next() {
-            EarAdjustmentTarget[] targets = values();
-            return targets[(ordinal() + 1) % targets.length];
-        }
-
-        static EarAdjustmentTarget fromId(String id) {
-            for (EarAdjustmentTarget target : values()) {
-                if (target.id.equals(id)) return target;
-            }
-            return PAIR;
-        }
-    }
 }
