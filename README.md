@@ -3,6 +3,16 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.41 authored preset transitions
+
+- Replaces abrupt maid preset removal with timed blending in both directions, including the
+  target-labelled small/large and white/black sock buttons. Menu transitions directly into
+  ordering; the two trays remain independently stackable.
+- The explicit angry preset blends `PUCKER` and reuses the two rising-vapor curves from the
+  maid's authored loop motion. Small form keeps only an unhappy mouth and its existing crossed
+  arms start pose; full anger is still independently selectable. Adds three left-eye wink
+  variants, with optional tongue and peace pose. Removes the standalone face-width test.
+
 ## v0.1.40 full maid breathing
 
 - The maid's local `ParamBreath` now completes the observed 0→1→0 cycle. The Sen accessory

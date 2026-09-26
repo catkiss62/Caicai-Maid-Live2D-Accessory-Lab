@@ -17,7 +17,7 @@
     {"id":"MOUTHX","label":"歪嘴","range":[-1,1],"neutral":0,"atMin":"向左歪嘴","atMax":"向右歪嘴","motion":"Blend through center for a fleeting asymmetric mouth shape.","role":"expression","caution":"This is uppercase MOUTHX in the maid CDI; ParamMouthX is a different name used in Sen code."},
     {"id":"OUT","label":"吐舌头","range":[0,1],"neutral":0,"atMin":"舌头收起","atMax":"短舌头伸出","motion":"Treat as discrete: animate quickly to 1, hold briefly, then return to 0; intermediate values are not visually useful.","role":"short_reaction"},
     {"id":"SHRUG","label":"闭嘴撅嘴","range":[0,1],"neutral":0,"atMin":"正常嘴型","atMax":"闭嘴撅嘴","motion":"Blend for a brief pout; avoid competing with strong speech opening.","role":"expression"},
-    {"id":"PUCKER","label":"嘴宽／脸圆感","range":[-1,1],"neutral":0,"atMin":"待观察","atMax":"脸部显得更圆（用户视觉观察，待真机确认）","motion":"Do not put into idle or AI control until the PUCKER=1 test is evaluated.","role":"test_only","currentAndroid":"Manual PUCKER=1 preview button; off restores the active model or expression value."},
+    {"id":"PUCKER","label":"嘴宽／脸圆感","range":[-1,1],"neutral":0,"atMin":"待观察","atMax":"脸部显得更圆","motion":"Do not expose as a standalone face-shape command. In the explicit angry preset only, blend 0→1 on entry and 1→0 on exit.","role":"angry_preset_internal","currentAndroid":"No standalone button or idle/AI control. Only the explicit 1生气 preset blends PUCKER with its pose."},
     {"id":"ParamAngleZ","label":"角度 Z-捕","range":[-30,30],"neutral":0,"atMin":"向左歪头","atMax":"向右歪头","motion":"Smooth side tilt; modest idle excursions, larger only for explicit reaction.","role":"head","currentAndroid":"The full Z sweep also writes ParamAngleZ2."},
     {"id":"ParamAngleX","label":"角度 X-捕","range":[-30,30],"neutral":0,"atMin":"向左侧头","atMax":"向右侧头","motion":"Smooth yaw.","role":"head_capture_axis","currentAndroid":"Existing full visible X sweep writes ParamAngleX3; ParamAngleX alone barely moves the rendered head in this rig."},
     {"id":"ParamAngleY","label":"角度 Y-捕","range":[-30,30],"neutral":0,"atMin":"低头","atMax":"抬头","motion":"Smooth pitch.","role":"head_capture_axis","currentAndroid":"Existing full visible Y sweep writes ParamAngleY2; validate before AI uses ParamAngleY alone."},
@@ -36,5 +36,14 @@
   "compositions": [
     {"name":"playful_left_wink","targets":{"ParamEyeLOpen":0,"ParamEyeLSmile":1},"optional":{"OUT":1,"preset":"2比耶"},"note":"One-eye wink plus smiling eye corner; peace pose and short tongue make it more playful. Restore the eye-open channel after the wink."},
     {"name":"playful_right_wink","targets":{"ParamEyeROpen":0,"ParamEyeRSmile":1},"optional":{"OUT":1,"preset":"2比耶"},"note":"Mirror recipe; do not assume the two eye parameters are interchangeable on screen."}
-  ]
+  ],
+  "presetSemantics": {
+    "transition": "Authored maid Add parameters and the three left-eye wink recipes ease in and out over 0.38 seconds. Deactivation restores the underlying idle/current layers. Avoid stopping Cubism expression managers abruptly for these toggles.",
+    "anger": "Explicit 1生气 uses authored Param148=1, PUCKER 0→1, and ONLY the original 待机动画.motion3.json Param149/150 loop for rising vapor; all three fade away when anger ends. The small form does not activate this preset.",
+    "small": "变小 blends authored Param154/157/156 to 1 and ParamMouthForm toward -1 for its default unhappy mouth. Its button then reads 变大; switching back fades all of those channels out. The existing default 2插手 pose remains selectable separately.",
+    "socks": "1白袜 controls Param41. Button displays the target 白袜 or 黑袜; both directions ease between 0 and 1.",
+    "menu_order": "2菜单 targets Param79=1 and Param128=0; 2点单 targets Param79=1 and Param128=1. Fade the old action out while the new fades in; shared Param79 stays active through the transition.",
+    "trays": "2餐盘左 independently owns Param119; 2餐盘右 independently owns Param115. They may both be active, and the second tray eases in without clearing the first. Other 2 actions replace both trays.",
+    "wink": "App presets: wink = left eye open 0 + left eye smile 1; wink吐舌 adds OUT=1; 比耶wink吐舌 additionally activates authored 2比耶. Each is toggleable and fades both ways. Mirror right-eye values remain documented as a future option."
+  }
 }

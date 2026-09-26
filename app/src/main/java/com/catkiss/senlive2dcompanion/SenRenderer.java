@@ -96,7 +96,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     private float lastRigidHairDeltaY;
     private float lastRightHairFollowX;
     private long blinkEarSyncCount;
-    private boolean mouthWidthPreviewEnabled;
     private static final float RIGHT_HAIR_FOLLOW_FACTOR = 1.5f;
     private volatile boolean frontHairExperimentEnabled;
     private float lastRootAfterFlexGap;
@@ -468,11 +467,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
 
     void applyExpression(String name) {
         if (model != null) model.setExpression(name);
-    }
-
-    void setMouthWidthPreviewEnabled(boolean enabled) {
-        mouthWidthPreviewEnabled = enabled;
-        if (model != null) model.setMouthWidthPreviewEnabled(enabled);
     }
 
     void resetNativePresets() {
@@ -1498,7 +1492,6 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     SenRenderOptions.EAR_AMPLITUDE_PERCENT);
             next.setLipSyncValue(lipSyncValue);
             next.setCompositeTestMotion(compositeTestMotion);
-            next.setMouthWidthPreviewEnabled(mouthWidthPreviewEnabled);
             next.setStaticMode(staticMode);
             listener.onStatus("原生渲染：准备加载 Sen 三配件动力层…");
             SenLive2DModel overlay = new SenLive2DModel(

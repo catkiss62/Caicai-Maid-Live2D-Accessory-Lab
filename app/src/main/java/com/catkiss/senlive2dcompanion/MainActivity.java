@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.40 · 参数语义与完整呼吸";
+    private static final String VERSION = "v0.1.41 · 预设过渡与 wink";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
     private static final String FRONT_HAIR_POINT_KEY = "maid_front_hair_pick_v1";
     // The confirmed visible front-hair root from the v0.1.35 device diagnostic.
@@ -66,7 +66,9 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     private boolean staticMode;
     private boolean stageAdjustmentEnabled;
     private boolean whiteSocks;
-    private boolean mouthWidthPreviewEnabled;
+    private boolean smallForm;
+    private Button socksButton;
+    private Button smallFormButton;
     private float stageScale = 1f;
     private float stageX;
     private float stageY;
@@ -180,38 +182,38 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         panel.addView(section("表情（同组互斥）"));
         addPresetRows(panel, new String[]{"1爱心", "1生气", "1红脸", "1钱钱",
                 "1黑脸", "1星星眼", "1流泪"}, true);
-        panel.addView(section("动作（同组互斥）"));
+        panel.addView(section("动作（左右餐盘可叠加）"));
         addPresetRows(panel, new String[]{"2奶茶", "2插手", "2比耶", "2点单",
                 "2菜单", "2餐盘左", "2餐盘右"}, true);
+        panel.addView(section("wink 预设"));
+        LinearLayout winkRow = row();
+        winkRow.addView(presetButton("wink", "wink"), weighted());
+        winkRow.addView(presetButton("wink＋吐舌", "wink吐舌"), weighted());
+        panel.addView(winkRow);
+        panel.addView(presetButton("比耶＋wink＋吐舌", "比耶wink吐舌"));
 
         panel.addView(section("装扮与变小（可叠加）"));
         LinearLayout outfit1 = row();
-        Button socks = panelButton("白袜");
-        socks.setOnClickListener(v -> {
+        socksButton = panelButton("白袜");
+        socksButton.setOnClickListener(v -> {
             companionView.applyExpression("1白袜");
             whiteSocks = !whiteSocks;
-            socks.setText(whiteSocks ? "黑袜" : "白袜");
+            socksButton.setText(whiteSocks ? "黑袜" : "白袜");
         });
-        outfit1.addView(socks, weighted());
+        outfit1.addView(socksButton, weighted());
         outfit1.addView(presetButton("丝袜带子", "丝袜带子"), weighted());
         outfit1.addView(presetButton("双马尾", "双马尾"), weighted());
         panel.addView(outfit1);
         LinearLayout outfit2 = row();
         outfit2.addView(presetButton("发带", "发带"), weighted());
-        outfit2.addView(presetButton("变小", "变小"), weighted());
-        panel.addView(outfit2);
-
-        panel.addView(section("脸型测试"));
-        Button mouthWidthPreview = panelButton("嘴宽 1：关闭");
-        mouthWidthPreview.setOnClickListener(v -> {
-            mouthWidthPreviewEnabled = !mouthWidthPreviewEnabled;
-            companionView.setMouthWidthPreviewEnabled(mouthWidthPreviewEnabled);
-            mouthWidthPreview.setText(mouthWidthPreviewEnabled
-                    ? "嘴宽 1：开启（点此恢复）" : "嘴宽 1：关闭");
+        smallFormButton = panelButton("变小");
+        smallFormButton.setOnClickListener(v -> {
+            companionView.applyExpression("变小");
+            smallForm = !smallForm;
+            smallFormButton.setText(smallForm ? "变大" : "变小");
         });
-        panel.addView(mouthWidthPreview);
-        panel.addView(text("只测试女仆模型的 PUCKER=1，关闭后恢复当前表情/待机值；"
-                        + "暂不作为默认脸型。", 9, Color.rgb(180, 159, 199)));
+        outfit2.addView(smallFormButton, weighted());
+        panel.addView(outfit2);
 
         panel.addView(section("诊断与舞台"));
         LinearLayout diagnostic = row();
@@ -397,6 +399,10 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     }
 
     private void loadModels() {
+        whiteSocks = false;
+        smallForm = false;
+        if (socksButton != null) socksButton.setText("白袜");
+        if (smallFormButton != null) smallFormButton.setText("变小");
         String mainPath = prefs.getString("main_model_path", "");
         String accessoryPath = prefs.getString("accessory_model_path", "");
         File main = new File(modelRoot, mainPath);
@@ -447,7 +453,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.40.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.41.json");
         });
     }
 

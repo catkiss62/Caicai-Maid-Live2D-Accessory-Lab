@@ -25,6 +25,7 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -147,6 +148,7 @@ final class SenLive2DModel extends CubismUserModel {
     };
     private static final float WHITE_SHIRT_POSE_FIRST_KEYFORM = 0.11f;
     private static final float ACTION_FACE_FADE_SECONDS = 0.28f;
+    private static final float PRESET_BLEND_SECONDS = 0.38f;
     private static final float LOADING_SPIN_SECONDS = 0.90f;
     // Expressions and motions finish by order 310; mouth-driven physics starts at 600.
     // Put lip sync in between so the model's authored MouthOpenY physics receives the voice.
@@ -172,8 +174,34 @@ final class SenLive2DModel extends CubismUserModel {
     private final Map<String, ACubismMotion> expressions = new HashMap<>();
     private final Map<String, CubismExpressionMotionManager> expressionManagers =
             new LinkedHashMap<>();
+    private final Map<String, Map<String, Float>> maidPresetValues = new LinkedHashMap<>();
+    private final Map<String, PresetBlend> maidPresetBlends = new LinkedHashMap<>();
     private final Set<String> activeExpressionNames = new LinkedHashSet<>();
     private final Map<String, CubismMotion> nativeMotions = new HashMap<>();
+    private final com.live2d.sdk.cubism.framework.motion.CubismMotionQueueManager
+            angryVaporManager = new com.live2d.sdk.cubism.framework.motion.CubismMotionQueueManager();
+    private CubismMotion angryVaporMotion;
+    private boolean winkOwnsPeace;
+
+    private static final class PresetBlend {
+        float weight;
+        float from;
+        float target;
+        float elapsed = PRESET_BLEND_SECONDS;
+
+        void aim(boolean enabled) {
+            from = weight;
+            target = enabled ? 1f : 0f;
+            elapsed = 0f;
+        }
+
+        void advance(float dt) {
+            elapsed = Math.min(PRESET_BLEND_SECONDS, elapsed + dt);
+            float t = elapsed / PRESET_BLEND_SECONDS;
+            float eased = t * t * (3f - 2f * t);
+            weight = from + (target - from) * eased;
+        }
+    }
     private final CompositeModelRole compositeRole;
     private final CubismExpressionMotionManager transientExpressionManager =
             new CubismExpressionMotionManager();
@@ -185,7 +213,6 @@ final class SenLive2DModel extends CubismUserModel {
     private SenMotionMode motionMode = SenMotionMode.ORIGINAL;
     private boolean autoIdleEnabled;
     private int naturalBlinkStarts;
-    private boolean mouthWidthPreviewEnabled;
     private float evBodyFollowStrength = SenRenderOptions.DEFAULT_EV_BODY_FOLLOW_STRENGTH;
     private SenMotionDiagnostic motionDiagnostic;
     private MotionDiagnosticListener motionDiagnosticListener;
@@ -417,6 +444,9 @@ final class SenLive2DModel extends CubismUserModel {
             }
         }
         updateScheduler.onLateUpdate(model, frameDelta);
+        if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
+            applyMaidPresetLayer(frameDelta);
+        }
         // The authored angry pose crossfades from the previous face for half a second. During
         // that transition, keep the mouth closed so an intermediate open-mouth keyform cannot
         // flash before the intended expression settles.
@@ -428,12 +458,6 @@ final class SenLive2DModel extends CubismUserModel {
         // actions may animate pose parameters, but they must never alter the selected clothes.
         if (hasVtsBaseProfile) applyOutfitParameters(outfitPreset, null);
         applyCompositeTestMotion(frameDelta);
-        // PUCKER is the maid model's real CDI ID. Apply the one-button preview after idle,
-        // expressions and sweep actions, just before mesh evaluation. Switching it off lets
-        // model.loadParameters() and the active expression restore their own value next frame.
-        if (compositeRole == CompositeModelRole.MAID_PRIMARY && mouthWidthPreviewEnabled) {
-            setParameter("PUCKER", 1f);
-        }
         if (!staticMode) updateLoadingSpinner(frameDelta);
         updateModelWithOutfitShapeLock();
         if (motionDiagnostic != null) {
@@ -487,10 +511,6 @@ final class SenLive2DModel extends CubismUserModel {
             if (physics != null) physics.reset();
             if (isolatedEarPhysics != null) isolatedEarPhysics.reset();
         }
-    }
-
-    void setMouthWidthPreviewEnabled(boolean enabled) {
-        mouthWidthPreviewEnabled = enabled;
     }
 
     void setCompositeTestMotion(CompositeTestMotion motion) {
@@ -1566,6 +1586,12 @@ final class SenLive2DModel extends CubismUserModel {
             glassesEnabled = !glassesEnabled;
             return;
         }
+        if (compositeRole == CompositeModelRole.MAID_PRIMARY
+                && (maidPresetValues.containsKey(name) || isWinkPreset(name))
+                && !name.equals(transientExpressionName)) {
+            toggleMaidPreset(name);
+            return;
+        }
         if (name != null && name.equals(transientExpressionName)) {
             ACubismMotion transientMotion = expressions.get(name);
             if (transientMotion != null) {
@@ -1614,6 +1640,120 @@ final class SenLive2DModel extends CubismUserModel {
         if ("1生气".equals(name)) angryMouthGuardSeconds = 0.5f;
     }
 
+    private static boolean isWinkPreset(String name) {
+        return "wink".equals(name) || "wink吐舌".equals(name)
+                || "比耶wink吐舌".equals(name);
+    }
+
+    private static boolean isFacePreset(String name) {
+        return isWinkPreset(name) || "1爱心".equals(name) || "1生气".equals(name)
+                || "1红脸".equals(name) || "1钱钱".equals(name)
+                || "1黑脸".equals(name) || "1星星眼".equals(name)
+                || "1流泪".equals(name);
+    }
+
+    private static boolean maidPresetsConflict(String incoming, String active) {
+        if (isFacePreset(incoming)) return isFacePreset(active);
+        if (!incoming.startsWith("2") && !"比耶wink吐舌".equals(incoming)) return false;
+        if (!active.startsWith("2")) return false;
+        // Two trays have separate authored parameters: Param119 and Param115.
+        return !(incoming.equals("2餐盘左") && active.equals("2餐盘右"))
+                && !(incoming.equals("2餐盘右") && active.equals("2餐盘左"));
+    }
+
+    private PresetBlend maidBlend(String name) {
+        PresetBlend blend = maidPresetBlends.get(name);
+        if (blend == null) {
+            blend = new PresetBlend();
+            maidPresetBlends.put(name, blend);
+        }
+        return blend;
+    }
+
+    private void stopMaidPreset(String name) {
+        if (!activeExpressionNames.remove(name)) return;
+        maidBlend(name).aim(false);
+        if ("1生气".equals(name)) {
+            fadeOutManager(angryVaporManager, PRESET_BLEND_SECONDS);
+            angryMouthGuardSeconds = 0f;
+        }
+        if ("比耶wink吐舌".equals(name) && winkOwnsPeace) {
+            winkOwnsPeace = false;
+            stopMaidPreset("2比耶");
+        }
+        if ("变小".equals(name)) stopMaidPreset("2插手");
+    }
+
+    private void startMaidPreset(String name) {
+        if (activeExpressionNames.contains(name)) return;
+        for (String active : new ArrayList<>(activeExpressionNames)) {
+            if (maidPresetsConflict(name, active)) stopMaidPreset(active);
+        }
+        activeExpressionNames.add(name);
+        maidBlend(name).aim(true);
+        if ("1生气".equals(name)) {
+            angryMouthGuardSeconds = 0.5f;
+            if (angryVaporMotion != null) {
+                angryVaporManager.startMotion(angryVaporMotion);
+            }
+        }
+        if ("变小".equals(name) && !activeExpressionNames.contains("2插手")) {
+            startMaidPreset("2插手");
+        }
+        if ("比耶wink吐舌".equals(name)) {
+            winkOwnsPeace = !activeExpressionNames.contains("2比耶");
+            if (winkOwnsPeace) startMaidPreset("2比耶");
+        }
+    }
+
+    private void toggleMaidPreset(String name) {
+        if (activeExpressionNames.contains(name)) stopMaidPreset(name);
+        else startMaidPreset(name);
+    }
+
+    private void applyMaidPresetLayer(float dt) {
+        Map<String, Float> additions = new LinkedHashMap<>();
+        for (Map.Entry<String, PresetBlend> entry : maidPresetBlends.entrySet()) {
+            PresetBlend blend = entry.getValue();
+            blend.advance(dt);
+            if (blend.weight < .00001f) continue;
+            Map<String, Float> parameters = maidPresetValues.get(entry.getKey());
+            if (parameters == null) continue;
+            for (Map.Entry<String, Float> parameter : parameters.entrySet()) {
+                additions.merge(parameter.getKey(), parameter.getValue() * blend.weight, Float::sum);
+            }
+        }
+        for (Map.Entry<String, Float> entry : additions.entrySet()) {
+            addParameter(entry.getKey(), entry.getValue());
+        }
+        float angry = maidBlend("1生气").weight;
+        if (angry > .00001f) setParameter("PUCKER", angry);
+        float small = maidBlend("变小").weight;
+        if (small > .00001f) {
+            int mouth = findParameterIndex("ParamMouthForm");
+            if (mouth >= 0) {
+                float previous = model.getParameterValue(mouth);
+                setParameter("ParamMouthForm", previous * (1f - small) - small);
+            }
+        }
+        float wink = Math.min(1f, maidBlend("wink").weight
+                + maidBlend("wink吐舌").weight + maidBlend("比耶wink吐舌").weight);
+        float tongue = Math.min(1f, maidBlend("wink吐舌").weight
+                + maidBlend("比耶wink吐舌").weight);
+        if (wink > .00001f) {
+            blendParameterToward("ParamEyeLOpen", 0f, wink);
+            blendParameterToward("ParamEyeLSmile", 1f, wink);
+        }
+        if (tongue > .00001f) blendParameterToward("OUT", 1f, tongue);
+    }
+
+    private void blendParameterToward(String id, float target, float weight) {
+        int index = findParameterIndex(id);
+        if (index < 0) return;
+        float previous = model.getParameterValue(index);
+        setParameter(id, previous + (target - previous) * weight);
+    }
+
     private void stopExpressionIfActive(String name) {
         if (!activeExpressionNames.remove(name)) return;
         CubismExpressionMotionManager manager = expressionManagers.get(name);
@@ -1622,6 +1762,10 @@ final class SenLive2DModel extends CubismUserModel {
     }
 
     void resetNativePresets() {
+        if (compositeRole == CompositeModelRole.MAID_PRIMARY) {
+            for (String name : new ArrayList<>(activeExpressionNames)) stopMaidPreset(name);
+            winkOwnsPeace = false;
+        }
         for (CubismExpressionMotionManager manager : expressionManagers.values()) {
             manager.stopAllMotions();
         }
@@ -1866,6 +2010,19 @@ final class SenLive2DModel extends CubismUserModel {
                     NativeFileLoader.readFile(source.getValue()));
             if (motion != null) {
                 SenVtsHotkeySettings.Rule rule = hotkeys.forFile(fileName);
+                if (compositeRole == CompositeModelRole.MAID_PRIMARY
+                        && !"点击".equals(name)
+                        && (rule == null || !rule.deactivateAfterSeconds)) {
+                    Map<String, Float> values = new LinkedHashMap<>();
+                    for (CubismExpressionMotion.ExpressionParameter parameter
+                            : motion.getExpressionParameters()) {
+                        if (parameter.blendType != CubismExpressionMotion.ExpressionBlendType.ADD) {
+                            throw new IOException("女仆预设不是 Add 参数：" + fileName);
+                        }
+                        values.merge(parameter.parameterId.getString(), parameter.value, Float::sum);
+                    }
+                    maidPresetValues.put(name, values);
+                }
                 if (rule != null && rule.fadeSeconds >= 0.0f) {
                     motion.setFadeInTime(rule.fadeSeconds);
                     motion.setFadeOutTime(rule.fadeSeconds);
@@ -1912,6 +2069,10 @@ final class SenLive2DModel extends CubismUserModel {
         int loaded = 0;
         for (File file : files) {
             String baseName = file.getName();
+            if (compositeRole == CompositeModelRole.MAID_PRIMARY
+                    && "待机动画.motion3.json".equals(baseName)) {
+                angryVaporMotion = loadAngryVaporMotion(NativeFileLoader.readFile(file));
+            }
             boolean keyboard = file.getParentFile() != null
                     && "keyboard".equalsIgnoreCase(file.getParentFile().getName());
             if (!keyboard) continue;
@@ -1927,6 +2088,15 @@ final class SenLive2DModel extends CubismUserModel {
             nativeMotions.put(key, motion);
             loaded++;
         }
+        if (angryVaporMotion != null) {
+            updateScheduler.addUpdatableList(new ACubismUpdater(320) {
+                @Override public void onLateUpdate(
+                        com.live2d.sdk.cubism.framework.model.CubismModel target,
+                        float deltaTimeSeconds) {
+                    angryVaporManager.updateMotion(target, deltaTimeSeconds);
+                }
+            });
+        }
         if (loaded == 0) return;
         listener.onStatus("原生渲染：已读取原包动作 " + loaded + " 个…");
         updateScheduler.addUpdatableList(new ACubismUpdater(250) {
@@ -1936,6 +2106,47 @@ final class SenLive2DModel extends CubismUserModel {
                 motionManager.updateMotion(target, deltaTimeSeconds);
             }
         });
+    }
+
+    private CubismMotion loadAngryVaporMotion(byte[] original) throws IOException {
+        try {
+            JSONObject motion = new JSONObject(new String(original, StandardCharsets.UTF_8));
+            JSONArray curves = motion.getJSONArray("Curves");
+            JSONArray vaporCurves = new JSONArray();
+            int segmentCount = 0;
+            int pointCount = 0;
+            for (int i = 0; i < curves.length(); i++) {
+                JSONObject curve = curves.getJSONObject(i);
+                String id = curve.optString("Id");
+                if (!"Param149".equals(id) && !"Param150".equals(id)) continue;
+                vaporCurves.put(curve);
+                JSONArray segments = curve.getJSONArray("Segments");
+                int points = 1;
+                for (int pos = 2; pos < segments.length(); ) {
+                    int type = segments.getInt(pos);
+                    points += type == 1 ? 3 : 1;
+                    pos += type == 1 ? 7 : 3;
+                    segmentCount++;
+                }
+                pointCount += points;
+            }
+            if (vaporCurves.length() != 2) {
+                throw new IOException("原装待机动作缺少生气冒气 Param149/150 曲线");
+            }
+            JSONObject meta = motion.getJSONObject("Meta");
+            meta.put("CurveCount", 2);
+            meta.put("TotalSegmentCount", segmentCount);
+            meta.put("TotalPointCount", pointCount);
+            motion.put("Curves", vaporCurves);
+            CubismMotion result = loadMotion(motion.toString().getBytes(StandardCharsets.UTF_8));
+            if (result != null) {
+                result.setFadeInTime(PRESET_BLEND_SECONDS);
+                result.setFadeOutTime(PRESET_BLEND_SECONDS);
+            }
+            return result;
+        } catch (JSONException error) {
+            throw new IOException("无法提取原装生气冒气循环", error);
+        }
     }
 
     private void loadPhysicsAndPose(SenRenderer.Listener listener) throws IOException {
@@ -2327,6 +2538,11 @@ final class SenLive2DModel extends CubismUserModel {
     private void clearExpressionsForHeadPat() {
         for (String name : new ArrayList<>(activeExpressionNames)) {
             if (isHeadPatRetainedExpression(name)) continue;
+            if (compositeRole == CompositeModelRole.MAID_PRIMARY
+                    && (maidPresetValues.containsKey(name) || isWinkPreset(name))) {
+                stopMaidPreset(name);
+                continue;
+            }
             CubismExpressionMotionManager manager = expressionManagers.get(name);
             if (manager != null) fadeOutManager(manager, ACTION_FACE_FADE_SECONDS);
             activeExpressionNames.remove(name);
