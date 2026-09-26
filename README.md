@@ -3,6 +3,17 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.39 maid parameter semantics
+
+- Records 21 visually calibrated maid parameters, their actual CDI IDs, observed ranges,
+  direction, ownership and short reaction composition in
+  [`app/src/main/assets/maid-parameter-semantics-v1.json`](app/src/main/assets/maid-parameter-semantics-v1.json).
+  [`docs/MAID_PARAMETER_CONTRACT.md`](docs/MAID_PARAMETER_CONTRACT.md) explains the
+  runtime layering and future JEV integration in Chinese. Observed ranges are not a
+  substitute for Core parameter limit checks.
+- Adds a reversible `PUCKER=1` face-shape preview button. Breathing and the existing
+  autonomous idle run locally; no second idle scheduler or AI service is introduced.
+
 ## v0.1.38 material baseline
 
 - Fixes the accepted `ArtMesh386` front-hair point, 1.5× right-turn follow, calibrated ahoge

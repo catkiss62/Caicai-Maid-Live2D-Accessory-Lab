@@ -1,0 +1,40 @@
+{
+  "schema": "caicai-maid-parameter-semantics-v1",
+  "model": "caicai/maid.moc3",
+  "source": "Owner's visual calibration cross-checked against maid.cdi3.json IDs; ranges and directions below are visual observations, not a dump of Core min/max.",
+  "usage": {
+    "target": "Future AI/JEV motion planner and Android parameter mixer",
+    "timing": "All values are continuous targets; interpolate to and from each target unless the entry explicitly says discrete.",
+    "ownership": "Keep breathing, autonomous blink, subtle gaze and idle motion local. AI/JEV requests short-lived expressive targets; explicit preset actions and speech lip-sync own their channels while active.",
+    "validation": "Whitelist actual maid CDI/Core parameter IDs, clamp to the model's runtime min/max, and restore neutral or the lower-priority layer when a timed request ends. Never send these maid IDs to the Sen accessory donor.",
+    "priority": "Explicit preset or manual test > speaking/reaction parameter plan > local idle; preserve audio lip-sync ownership of mouth opening and autonomous blink ownership of unrequested eye-open values.",
+    "captureAxisCaution": "ParamAngleX and ParamAngleY are named capture axes; current Android full head sweep uses ParamAngleX3 and ParamAngleY2 for visible motion. Confirm the intended rig target before promoting capture axes to AI output."
+  },
+  "parameters": [
+    {"id":"ParamBreath","label":"呼吸","range":[0,1],"neutral":0.5,"atMin":"呼吸一端","atMax":"呼吸另一端","motion":"0→1→0 is one full breath; loop smoothly, never latch at an endpoint.","role":"continuous_idle","currentAndroid":"The local performance clock writes a sine breath each frame (currently approximately 0.08–0.92), including the Sen donor tail physics input. Do not schedule an extra AI breath."},
+    {"id":"ParamMouthForm","label":"嘴变形","range":[-1,1],"neutral":0,"atMin":"不高兴的嘴型","atMax":"顽皮笑","motion":"Blend for expression; return to the prior expression when the timed reaction ends.","role":"expression"},
+    {"id":"ParamMouthOpenY","label":"嘴张开和闭合","range":[0,1],"neutral":0,"atMin":"闭嘴","atMax":"张嘴","motion":"Continuous opening; while TTS is playing, lip-sync owns this parameter.","role":"speech_or_expression"},
+    {"id":"MOUTHX","label":"歪嘴","range":[-1,1],"neutral":0,"atMin":"向左歪嘴","atMax":"向右歪嘴","motion":"Blend through center for a fleeting asymmetric mouth shape.","role":"expression","caution":"This is uppercase MOUTHX in the maid CDI; ParamMouthX is a different name used in Sen code."},
+    {"id":"OUT","label":"吐舌头","range":[0,1],"neutral":0,"atMin":"舌头收起","atMax":"短舌头伸出","motion":"Treat as discrete: animate quickly to 1, hold briefly, then return to 0; intermediate values are not visually useful.","role":"short_reaction"},
+    {"id":"SHRUG","label":"闭嘴撅嘴","range":[0,1],"neutral":0,"atMin":"正常嘴型","atMax":"闭嘴撅嘴","motion":"Blend for a brief pout; avoid competing with strong speech opening.","role":"expression"},
+    {"id":"PUCKER","label":"嘴宽／脸圆感","range":[-1,1],"neutral":0,"atMin":"待观察","atMax":"脸部显得更圆（用户视觉观察，待真机确认）","motion":"Do not put into idle or AI control until the PUCKER=1 test is evaluated.","role":"test_only","currentAndroid":"Manual PUCKER=1 preview button; off restores the active model or expression value."},
+    {"id":"ParamAngleZ","label":"角度 Z-捕","range":[-30,30],"neutral":0,"atMin":"向左歪头","atMax":"向右歪头","motion":"Smooth side tilt; modest idle excursions, larger only for explicit reaction.","role":"head","currentAndroid":"The full Z sweep also writes ParamAngleZ2."},
+    {"id":"ParamAngleX","label":"角度 X-捕","range":[-30,30],"neutral":0,"atMin":"向左侧头","atMax":"向右侧头","motion":"Smooth yaw.","role":"head_capture_axis","currentAndroid":"Existing full visible X sweep writes ParamAngleX3; ParamAngleX alone barely moves the rendered head in this rig."},
+    {"id":"ParamAngleY","label":"角度 Y-捕","range":[-30,30],"neutral":0,"atMin":"低头","atMax":"抬头","motion":"Smooth pitch.","role":"head_capture_axis","currentAndroid":"Existing full visible Y sweep writes ParamAngleY2; validate before AI uses ParamAngleY alone."},
+    {"id":"ParamBodyAngleX","label":"身体旋转 X","range":[-10,10],"neutral":0,"atMin":"身体与双胯向一侧运动","atMax":"身体与双胯向另一侧运动","motion":"Transient movement; the authored motion returns automatically. Do not force a held pose or change its return behavior.","role":"body_reaction"},
+    {"id":"ParamBodyAngleY","label":"身体旋转 Y","range":[-10,10],"neutral":0,"atMin":"身体下压","atMax":"身体抬高，近似踮脚","motion":"Use small smooth rise and fall if later added to idle; this is the visible vertical body bounce source, not ParamBodyPositiony.","role":"body_vertical"},
+    {"id":"ParamBodyAngleZ","label":"身体旋转 Z","range":[-10,10],"neutral":0,"atMin":"身体轻微向左转","atMax":"身体轻微向右转","motion":"Smooth body sway.","role":"body_sway"},
+    {"id":"ParamEyeBallX","label":"眼珠 X","range":[-1,1],"neutral":0,"atMin":"向左看","atMax":"向右看","motion":"Smooth gaze; local idle owns it unless an explicit attention or reaction target is active.","role":"gaze"},
+    {"id":"ParamEyeBallY","label":"眼珠 Y","range":[-1,1],"neutral":0,"atMin":"向下看","atMax":"向上看","motion":"Smooth gaze; local idle owns it unless an explicit attention or reaction target is active.","role":"gaze"},
+    {"id":"ParamEyeLOpen","label":"左眼开闭","range":[0,1],"neutral":1,"atMin":"左眼闭合","atMax":"左眼睁开","motion":"Short left-only wink may target 0 and restore 1; autonomous blink otherwise owns both eye-open channels.","role":"eye_open"},
+    {"id":"ParamEyeROpen","label":"右眼开闭","range":[0,1],"neutral":1,"atMin":"右眼闭合","atMax":"右眼睁开","motion":"Short right-only wink may target 0 and restore 1; autonomous blink otherwise owns both eye-open channels.","role":"eye_open"},
+    {"id":"ParamEyeLSmile","label":"左眼微笑","range":[0,1],"neutral":0,"atMin":"正常眼角","atMax":"微笑眼角","motion":"Coupled with ParamEyeLOpen: closing the left eye at 1 creates a smiling wink.","role":"eye_expression"},
+    {"id":"ParamEyeRSmile","label":"右眼微笑","range":[0,1],"neutral":0,"atMin":"正常眼角","atMax":"微笑眼角","motion":"Coupled with ParamEyeROpen: closing the right eye at 1 creates a smiling wink.","role":"eye_expression"},
+    {"id":"ParamBrowLY","label":"左眉上下","range":[-1,1],"neutral":0,"atMin":"左侧皱眉感","atMax":"左眼大睁感","motion":"The brow drives the eye region too; use with eye-open/smile rather than treating it as an isolated brow translation.","role":"brow_expression"},
+    {"id":"ParamBrowRY","label":"右眉上下","range":[-1,1],"neutral":0,"atMin":"右侧皱眉感","atMax":"右眼大睁感","motion":"The brow drives the eye region too; use with eye-open/smile rather than treating it as an isolated brow translation.","role":"brow_expression"}
+  ],
+  "compositions": [
+    {"name":"playful_left_wink","targets":{"ParamEyeLOpen":0,"ParamEyeLSmile":1},"optional":{"OUT":1,"preset":"2比耶"},"note":"One-eye wink plus smiling eye corner; peace pose and short tongue make it more playful. Restore the eye-open channel after the wink."},
+    {"name":"playful_right_wink","targets":{"ParamEyeROpen":0,"ParamEyeRSmile":1},"optional":{"OUT":1,"preset":"2比耶"},"note":"Mirror recipe; do not assume the two eye parameters are interchangeable on screen."}
+  ]
+}

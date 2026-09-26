@@ -185,6 +185,7 @@ final class SenLive2DModel extends CubismUserModel {
     private SenMotionMode motionMode = SenMotionMode.ORIGINAL;
     private boolean autoIdleEnabled;
     private int naturalBlinkStarts;
+    private boolean mouthWidthPreviewEnabled;
     private float evBodyFollowStrength = SenRenderOptions.DEFAULT_EV_BODY_FOLLOW_STRENGTH;
     private SenMotionDiagnostic motionDiagnostic;
     private MotionDiagnosticListener motionDiagnosticListener;
@@ -425,6 +426,12 @@ final class SenLive2DModel extends CubismUserModel {
         // actions may animate pose parameters, but they must never alter the selected clothes.
         if (hasVtsBaseProfile) applyOutfitParameters(outfitPreset, null);
         applyCompositeTestMotion(frameDelta);
+        // PUCKER is the maid model's real CDI ID. Apply the one-button preview after idle,
+        // expressions and sweep actions, just before mesh evaluation. Switching it off lets
+        // model.loadParameters() and the active expression restore their own value next frame.
+        if (compositeRole == CompositeModelRole.MAID_PRIMARY && mouthWidthPreviewEnabled) {
+            setParameter("PUCKER", 1f);
+        }
         if (!staticMode) updateLoadingSpinner(frameDelta);
         updateModelWithOutfitShapeLock();
         if (motionDiagnostic != null) {
@@ -478,6 +485,10 @@ final class SenLive2DModel extends CubismUserModel {
             if (physics != null) physics.reset();
             if (isolatedEarPhysics != null) isolatedEarPhysics.reset();
         }
+    }
+
+    void setMouthWidthPreviewEnabled(boolean enabled) {
+        mouthWidthPreviewEnabled = enabled;
     }
 
     void setCompositeTestMotion(CompositeTestMotion motion) {

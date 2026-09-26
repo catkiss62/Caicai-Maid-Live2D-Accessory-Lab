@@ -331,6 +331,10 @@ public final class SenCompanionView extends GLSurfaceView implements SenCompanio
         queueRenderer(() -> renderer.applyExpression(name));
     }
 
+    void setMouthWidthPreviewEnabled(boolean enabled) {
+        queueRenderer(() -> renderer.setMouthWidthPreviewEnabled(enabled));
+    }
+
     void resetNativePresets() {
         queueRenderer(renderer::resetNativePresets);
     }

@@ -41,7 +41,7 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends AppCompatActivity implements SenCompanionView.Listener {
     private static final String PREFS = "caicai_maid_accessory_lab";
     private static final String CALIBRATION_KEY = "accessory_calibration_v3_material_hair_sections";
-    private static final String VERSION = "v0.1.38 · 三配件素材收口";
+    private static final String VERSION = "v0.1.39 · 参数语义与嘴宽测试";
     private static final String HAIR_POINT_KEY = "maid_top_hair_pick_v1";
     private static final String FRONT_HAIR_POINT_KEY = "maid_front_hair_pick_v1";
     // The confirmed visible front-hair root from the v0.1.35 device diagnostic.
@@ -66,6 +66,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     private boolean staticMode;
     private boolean stageAdjustmentEnabled;
     private boolean whiteSocks;
+    private boolean mouthWidthPreviewEnabled;
     private float stageScale = 1f;
     private float stageX;
     private float stageY;
@@ -199,6 +200,18 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
         outfit2.addView(presetButton("发带", "发带"), weighted());
         outfit2.addView(presetButton("变小", "变小"), weighted());
         panel.addView(outfit2);
+
+        panel.addView(section("脸型测试"));
+        Button mouthWidthPreview = panelButton("嘴宽 1：关闭");
+        mouthWidthPreview.setOnClickListener(v -> {
+            mouthWidthPreviewEnabled = !mouthWidthPreviewEnabled;
+            companionView.setMouthWidthPreviewEnabled(mouthWidthPreviewEnabled);
+            mouthWidthPreview.setText(mouthWidthPreviewEnabled
+                    ? "嘴宽 1：开启（点此恢复）" : "嘴宽 1：关闭");
+        });
+        panel.addView(mouthWidthPreview);
+        panel.addView(text("只测试女仆模型的 PUCKER=1，关闭后恢复当前表情/待机值；"
+                        + "暂不作为默认脸型。", 9, Color.rgb(180, 159, 199)));
 
         panel.addView(section("诊断与舞台"));
         LinearLayout diagnostic = row();
@@ -434,7 +447,7 @@ public class MainActivity extends AppCompatActivity implements SenCompanionView.
     @Override public void onCompositeReport(String report) {
         runOnUiThread(() -> {
             pendingExportReport = report;
-            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.38.json");
+            reportCreator.launch("caicai-maid-accessory-diagnostic-v0.1.39.json");
         });
     }
 
