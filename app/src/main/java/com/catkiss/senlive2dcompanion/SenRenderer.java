@@ -364,6 +364,13 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                     : "v0.1.16_independent_face_mesh_pins")
                     : "neutral_accessory_projection_only");
             root.put("attachment_transform_space", "shared_post_projection");
+            root.put("right_ear_default_x", CaicaiRightEarAdjustment.X);
+            root.put("right_ear_default_y", CaicaiRightEarAdjustment.Y);
+            root.put("right_ear_default_rotation_degrees", CaicaiRightEarAdjustment.ROTATION_DEGREES);
+            root.put("right_ear_default_units",
+                    "unadjusted_ear_width; x:right y:up rotation:counterclockwise");
+            root.put("right_ear_default_reference", "AI Companion v0.42.89+333");
+
             root.put("sen_rigid_parameter_drive", false);
             root.put("sen_local_accessory_dynamics", true);
             root.put("attachment_groups", new JSONObject()
@@ -449,7 +456,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
             return context.getPackageManager().getPackageInfo(
                     context.getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
-            return "0.1.42-mix-neck-angry-exit";
+            return "0.1.43-right-ear-reference";
         }
     }
 
@@ -705,8 +712,18 @@ final class SenRenderer implements GLSurfaceView.Renderer {
     }
 
     private void drawEarFinSide(boolean screenLeft, OverlayCalibration calibration) {
+        // Same final placement as AI Companion +333: after pair constraints,
+        // once per right-ear pass. All right-ear drawables share this matrix.
+        if (!screenLeft) applyRightEarAdjustment();
         overlayModel.drawSenEarSide(screenLeft ? leftEarProjection : rightEarProjection,
                 screenLeft);
+    }
+
+    private void applyRightEarAdjustment() {
+        float[] bounds = overlayModel.currentEarClipBounds(rightEarProjection, false);
+        if (bounds == null) return;
+        overlayModel.applyClipTransform(rightEarProjection, CaicaiRightEarAdjustment.matrix(
+                bounds, surfaceWidth, surfaceHeight));
     }
 
     private void prepareEarPairProjections(OverlayCalibration calibration) {
@@ -886,6 +903,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 fineTune.y + center[1] - b * center[0] - a * center[1],
                 0f, 1f
         };
+        CaicaiEarRotation.correct(transform, surfaceWidth, surfaceHeight, center[0], center[1]);
         overlayModel.applyClipTransform(projection, transform);
     }
 
@@ -1296,6 +1314,7 @@ final class SenRenderer implements GLSurfaceView.Renderer {
                 centerY - sin * centerX - cos * centerY,
                 0f, 1f
         };
+        CaicaiEarRotation.correct(rotate, surfaceWidth, surfaceHeight, centerX, centerY);
         overlayModel.applyClipTransform(matrix, rotate);
     }
 

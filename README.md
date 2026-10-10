@@ -3,6 +3,15 @@
 Android/Cubism test harness for a high-fidelity maid Live2D model with three selected accessories
 from Sen: ahoge, paired fish ear fins, and fish tail.
 
+## v0.1.43 right-ear reference alignment
+
+The screen-right ear now uses the accepted AI Companion v0.42.89+333 placement:
+X = -0.075 and Y = +0.04 in unadjusted ear-width units; rotation = +9.45 degrees
+counterclockwise in screen pixels. The identical placement and pixel-aspect correction
+helpers are shared by source, applied once after ear-pair constraints and before drawing.
+See [the reference contract](docs/RIGHT_EAR_REFERENCE_v0.1.43.md) for provenance,
+application order and migration guidance. Existing model ZIPs remain compatible.
+
 ## v0.1.41 authored preset transitions
 
 - Replaces abrupt maid preset removal with timed blending in both directions, including the

@@ -3,7 +3,7 @@ name: Build Caicai Maid Accessory Lab APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, agent/v0143-right-ear-sync ]
     paths:
       - 'app/**'
       - 'Core/**'
@@ -50,6 +50,25 @@ jobs:
           version="$(sed -nE "s/^[[:space:]]*versionName '([0-9]+\.[0-9]+\.[0-9]+).*/\1/p" app/build.gradle)"
           test -n "$version"
           echo "APK_ARTIFACT=Caicai-Maid-Live2D-Accessory-Lab-v${version}" >> "$GITHUB_ENV"
+
+      - name: Verify ear placement geometry
+        run: |
+          gradle :app:testDebugUnitTest --stacktrace
+          python3 - <<'PYTEST'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          reports = list(Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'))
+          assert reports, 'Missing geometry test results'
+          total = failures = errors = skipped = 0
+          for report in reports:
+              root = ET.parse(report).getroot()
+              total += int(root.attrib['tests'])
+              failures += int(root.attrib.get('failures', 0))
+              errors += int(root.attrib.get('errors', 0))
+              skipped += int(root.attrib.get('skipped', 0))
+          assert total >= 4 and failures == errors == skipped == 0
+          print(f'Ear placement geometry: {total} tests passed')
+          PYTEST
 
       - name: Build debug APK
         id: android_build
