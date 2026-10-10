@@ -1,6 +1,6 @@
 # v0.1.43 · 画面右侧耳鳍参考基准
 
-用户2026-10-10要求将AI伴侣已经定版的右耳鳍位置同步回菜菜参考项目。范围为Caicai-Maid-Live2D-Accessory-Lab；本轮不修改AI伴侣项目。当前IMPLEMENTED / CI PENDING / TRUE DEVICE PENDING。
+用户2026-10-10要求将AI伴侣已经定版的右耳鳍位置同步回菜菜参考项目。范围为Caicai-Maid-Live2D-Accessory-Lab；本轮不修改AI伴侣项目。当前IMPLEMENTED / CI PASSED / APK READY / TRUE DEVICE PENDING。
 
 基准：AI Companion v0.42.89+333，源码a3a5b15051294b1ffa792bb4c06d1d9b9fc16e9f，参数来自用户+332真机诊断；画面上显示9.4°，实际保存精度9.45°。
 
@@ -31,3 +31,7 @@ CaicaiRightEarAdjustment.java及CaicaiEarRotation.java从伴侣定版逐字复�
 ## 验证
 
 Java几何回归检查多个横竖屏比例/耳大小、位移方向、旋转中心和像素长度守恒，并确认9.45°逆时针角度与无效输入安全回退。另有Android完整编译。仅CI通过不能冒充真机视觉验收；观察需使用相同模型、姿势和舞台缩放比较两应用。
+
+2026-10-10 GitHub Actions [38012283598](https://github.com/catkiss62/Caicai-Maid-Live2D-Accessory-Lab/actions/runs/38012283598)，job 114094729519：4项几何测试通过，assembleDebug及产物上传成功。验证源码提交为3cf2cb8eeb23024c0125c65ef45579af6decc41a，与本地cada8051a1891f2fe9b9782f2c8b44787a4fe15e的完整文件树同为2490136cbc774d46b4d84ea8fc68e862301d96d6；后续交付提交仅回填本参考文档及项目总账。
+
+[v0.1.43 安装包产物](https://github.com/catkiss62/Caicai-Maid-Live2D-Accessory-Lab/actions/runs/38012283598/artifacts/11653229150)，artifact 11653229150，外层ZIP 3,372,778 bytes，GitHub提供的ZIP SHA-256为9f2ccd742b5efbcd7c602ea86d453f4da2187725770aabbbfcecf7db46ae693f。该大小和摘要属于下载产物ZIP，不是内部APK；本轮未下载做本地CRC/签名检查，也未做真机视觉比对。登录GitHub下载并解压后安装app-debug.apk，产物保留至2026-10-24。

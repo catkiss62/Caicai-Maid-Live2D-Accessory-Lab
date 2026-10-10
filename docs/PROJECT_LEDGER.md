@@ -1,11 +1,12 @@
 # 菜菜女仆配件实验室 · 项目总账
 
-## v0.1.43（右耳鳍参考同步；IMPLEMENTED / CI PENDING / TRUE DEVICE PENDING）
+## v0.1.43（右耳鳍参考同步；IMPLEMENTED / CI PASSED / APK READY / TRUE DEVICE PENDING）
 
 - 2026-10-10用户明确要求修改菜菜项目作为参考，与AI伴侣+333保持一致。本轮从菜菜main/fb04512f出发，仅同步耳鳍定版与它依赖的像素比例修正，工作分支agent/v0143-right-ear-sync；AI伴侣源码未修改。
 - 原校准基线两边逐字相同。新增右耳固定增量x=-0.075、y=+0.04（当前未调整耳宽单位）、逆时针9.45°，在耳对约束/共同位移之后、右耳统一绘制之前应用。既有耳旋转同步像素比例换算，不重复写入旧校准/偏好。两份数学helper直接复制伴侣定版，SHA与顺序详见RIGHT_EAR_REFERENCE_v0.1.43.md。
-- 原素材ZIP仍可导入；角色模型、呆毛、尾巴和头部跟随机制保持。诊断写入固定参数、单位及参考版本。版本code44/name0.1.43-right-ear-reference，使用原实验室签名身份。
-- 新增4项Java几何测试与CI执行入口，验证多屏幕比例、刚性长度/旋转中心、位移方向和回退。先分支构建验证，通过后同步main作为参考；后续追加实际CI/安装包证据。未做真机视觉确认。
+- 原素材ZIP仍可导入；角色模型、呆毛、尾巴和头部跟随机制保持。诊断写入固定参数、单位及参考版本。版本code44/name0.1.43-right-ear-reference，沿用原实验室签名配置。
+- 新增4项Java几何测试与CI执行入口，验证多屏幕比例、刚性长度/旋转中心、位移方向和回退。GitHub Actions [38012283598](https://github.com/catkiss62/Caicai-Maid-Live2D-Accessory-Lab/actions/runs/38012283598)，job 114094729519：4项测试通过，完整APK构建及上传成功。源码本地cada8051a1891f2fe9b9782f2c8b44787a4fe15e与远端3cf2cb8eeb23024c0125c65ef45579af6decc41a的文件树同为2490136cbc774d46b4d84ea8fc68e862301d96d6；交付提交只回填本总账与参考文档，应用源码沿用已验证版本。
+- [v0.1.43 安装包产物](https://github.com/catkiss62/Caicai-Maid-Live2D-Accessory-Lab/actions/runs/38012283598/artifacts/11653229150)：artifact 11653229150，外层ZIP 3,372,778 bytes，GitHub提供的ZIP SHA-256为9f2ccd742b5efbcd7c602ea86d453f4da2187725770aabbbfcecf7db46ae693f，保留至2026-10-24。ZIP内为app-debug.apk；本轮未下载做本地CRC/签名检查，未做真机视觉确认。分支验证成功后将同一应用源码同步main作为参考。
 
 ## v0.1.42（参数混合验证、变小脖子轴心、生气退场闭嘴；待真机确认）
 
